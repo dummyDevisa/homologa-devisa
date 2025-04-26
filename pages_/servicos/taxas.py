@@ -89,8 +89,8 @@ with st.expander("Registro de Solicitações", expanded=True):
             st.session_state.checkbox_minhas_tx = False
 
 
-        chk_somente_minhas = col3.pills("As minhas", value=st.session_state.checkbox_minhas_tx, disabled=st.session_state.disable_checkbox_minhas_tx, help="Mostrar somente as tratadas por mim")
-        chk_nao_respondidas = col4.pills("Não respondidas", value=st.session_state.checkbox_nao_respondidas_tx, disabled=st.session_state.disable_checkbox_nao_respondidas_tx)
+        chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_tx, disabled=st.session_state.disable_checkbox_minhas_tx, help="Mostrar somente as tratadas por mim")
+        chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_tx, disabled=st.session_state.disable_checkbox_nao_respondidas_tx)
         
         st.session_state.tx_df['Status'] = st.session_state.tx_df['Status'].replace("", "Passivo")
 
