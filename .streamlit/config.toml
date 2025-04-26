@@ -1,0 +1,13 @@
+[theme]
+base="light"
+
+[server]
+headless = true
+# enableCORS = false
+# enableXsrfProtection = false
+# enableWebsocketCompression = false
+# address = "0.0.0.0"  # Isso permite que o Streamlit aceite conexões de qualquer IP
+
+[browser] # This ip and port will show in command prompt
+#serverAddress = "10.26.0.68" # Put your Local IP or Domain Name
+#serverPort = 8501

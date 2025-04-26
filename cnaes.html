@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparador de CNAEs</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: 20px auto;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        textarea {
+            width: 95%; /* Ajustado para caber padding */
+            min-height: 80px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 1rem;
+            resize: vertical; /* Permite redimensionar verticalmente */
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #resultado {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .sucesso {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .erro {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .aviso {
+             background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Comparador de CNAEs</h1>
+
+    <div>
+        <label for="inputCnaesCnpj">CNAEs do CNPJ:</label>
+        <textarea id="inputCnaesCnpj" placeholder="Ex: CNAEs no CNPJ: 8650-0/02, 8640-2/07, 8650-0/06..."></textarea>
+    </div>
+
+    <div>
+        <label for="inputAtividades">Atividades Declaradas:</label>
+        <textarea id="inputAtividades" placeholder="Ex: ATIVIDADES DECLARADAS: Atividade médica ambulatorial restrita a consultas (8630-5/03, AP?, DVSCEP); Atividade médica..."></textarea>
+    </div>
+
+    <button onclick="compararCnaes()">Comparar CNAEs</button>
+
+    <div id="resultado">
+        <!-- O resultado da comparação será exibido aqui -->
+    </div>
+</div>
+
+<script>
+    function extrairCnaesInput1(textoInput1) {
+        if (!textoInput1 || typeof textoInput1 !== 'string') {
+            return [];
+        }
+        // Remove o texto inicial "CNAEs no CNPJ:" (case-insensitive e com espaços variáveis)
+        const textoCnaes = textoInput1.replace(/CNAEs no CNPJ:\s*/i, '');
+        // Separa pela vírgula, remove espaços em branco e filtra itens vazios
+        const cnaes = textoCnaes.split(',')
+                                 .map(cnae => cnae.trim())
+                                 .filter(cnae => cnae !== ''); // Remove strings vazias
+        // Regex para validar o formato CNAE (opcional, mas bom para robustez)
+        const cnaeRegex = /^\d{4}-\d\/\d{2}$/;
+        return cnaes.filter(cnae => cnaeRegex.test(cnae)); // Retorna apenas os que parecem CNAEs válidos
+    }
+
+    function compararCnaes() {
+        const textoInput1 = document.getElementById('inputCnaesCnpj').value;
+        const textoInput2 = document.getElementById('inputAtividades').value;
+        const resultadoDiv = document.getElementById('resultado');
+
+        // Limpa resultados anteriores e classes de estilo
+        resultadoDiv.innerHTML = '';
+        resultadoDiv.className = ''; // Remove classes como 'sucesso', 'erro', 'aviso'
+
+        if (!textoInput1.trim() || !textoInput2.trim()) {
+             resultadoDiv.textContent = 'Por favor, preencha ambos os campos.';
+             resultadoDiv.className = 'aviso';
+             return;
+        }
+
+        const cnaesDoCnpj = extrairCnaesInput1(textoInput1);
+        const textoAtividades = textoInput2; // O texto completo do segundo input
+
+        if (cnaesDoCnpj.length === 0) {
+             resultadoDiv.textContent = 'Não foi possível extrair CNAEs válidos do primeiro campo. Verifique o formato (Ex: 8650-0/02).';
+             resultadoDiv.className = 'aviso';
+             return;
+        }
+
+        const cnaesNaoEncontrados = [];
+
+        // Verifica cada CNAE do primeiro input se está contido no segundo input
+        cnaesDoCnpj.forEach(cnae => {
+            // Usamos includes() para verificar a presença da string exata do CNAE
+            // no texto do segundo input. Isso é suficiente para o requisito.
+            if (!textoAtividades.includes(cnae)) {
+                cnaesNaoEncontrados.push(cnae);
+            }
+        });
+
+        // Exibe o resultado
+        if (cnaesNaoEncontrados.length === 0) {
+            resultadoDiv.textContent = 'SUCESSO: Todos os CNAEs do primeiro input estão contidos no segundo input.';
+            resultadoDiv.className = 'sucesso'; // Adiciona classe para estilo de sucesso
+        } else {
+            resultadoDiv.textContent = 'ATENÇÃO: Os seguintes CNAEs do primeiro input NÃO foram encontrados no segundo input: ' + cnaesNaoEncontrados.join(', ') + '.';
+            resultadoDiv.className = 'erro'; // Adiciona classe para estilo de erro
+        }
+    }
+</script>
+
+</body>
+</html>

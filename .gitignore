@@ -1,0 +1,10 @@
+.streamlit/secrets.toml
+__pycache__/
+__tests/
+venv/
+databases/data_raw/
+test.py
+webdriver/
+proxy.py
+dist/
+build/
