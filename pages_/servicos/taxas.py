@@ -31,6 +31,11 @@ if 'tx_df' not in st.session_state:
     tx_df_aux = load_df()
     st.session_state.tx_df = tx_df_aux[tx_df_aux["Validade"] != "Inválido"]
     st.session_state.tx_df = st.session_state.tx_df.reset_index(drop=True)
+    st.session_state.tx_df['Data_Solicitacao_dt'] = pd.to_datetime(
+        st.session_state.tx_df['Data Solicitação'],
+        format='%d/%m/%y, %H:%M'
+    )
+    
 
 if st.session_state.reload_tx_df:
     st.session_state.tx_df = None
@@ -53,7 +58,7 @@ with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
     with colx:
 
-        col1, col2 = st.columns(2, vertical_alignment="top")
+        col1, col2, col3 = st.columns([0.8,1,1.2], vertical_alignment="center", gap="small")
 
         # Inicializando o session_state se necessário
         if 'status_checker' not in st.session_state:
@@ -76,14 +81,15 @@ with st.expander("Registro de Solicitações", expanded=True):
         default_status = [status_options[st.session_state.index_status_tx]]
 
         # Filtro de Status usando PILLS
-        with col1:
+        with col3:
             status_selecionado_pills = st.pills(
                 label="Filtro por Status:",
                 options=status_options,
                 selection_mode="single",
                 default=default_status,
                 key="status_selecionado_pills",
-                help="Escolha o status do processo"
+                help="Escolha o status do processo",
+                label_visibility='collapsed'
             )
 
         # Atualiza o session_state.status_checker para refletir a escolha atual
@@ -94,13 +100,6 @@ with st.expander("Registro de Solicitações", expanded=True):
 
         # Filtro de Tipo Processo (continuando o que você já tinha)
         tipo_processo_opcoes = st.session_state.tx_df['Tipo Processo'].unique()  # Valores únicos
-
-        # with col2:
-        #     tipo_selecionado = st.selectbox(
-        #         "Filtro por Tipo Processo:",
-        #         options=tipo_processo_opcoes,
-        #         disabled=True
-        #     )
         
         status_selecionado_tx = status_selecionado_pills
 
@@ -140,7 +139,25 @@ with st.expander("Registro de Solicitações", expanded=True):
                 default=selecionadas,
                 key="filtros_pills",
                 help="Selecione os filtros desejados",
+                label_visibility='collapsed'
             )
+        
+        with col1:
+            # limites para o picker
+            today = datetime.date.today()
+            next_year = today.year
+            jan_1 = datetime.date(next_year, 1, 1)
+            dec_31 = datetime.date(next_year, 12, 31)
+
+            data_inicio, data_fim = st.date_input(
+                "Intervalo de Datas",
+                value=(jan_1, jan_1 + datetime.timedelta(days=6)),
+                min_value=jan_1,
+                max_value=dec_31,
+                format="DD/MM/YYYY",
+                label_visibility='collapsed'
+            )
+
 
         # Atualize os estados com base nas seleções
         st.session_state.checkbox_minhas_tx = "As minhas" in selecionadas
@@ -148,9 +165,21 @@ with st.expander("Registro de Solicitações", expanded=True):
         
         st.session_state.tx_df['Status'] = st.session_state.tx_df['Status'].replace("", "Passivo")
 
+
+
         # Filtrando os dados com base no status selecionado
         df_geral = st.session_state.tx_df[st.session_state.tx_df['Status'] == status_selecionado_tx] if status_selecionado_tx else st.session_state.tx_df
-        
+
+        if not df_geral.empty:
+            data_min = df_geral['Data_Solicitacao_dt'].min().date()
+            data_max = df_geral['Data_Solicitacao_dt'].max().date()
+        else:
+            # caso df_geral fique vazio, define defaults razoáveis
+            hoje = datetime.date.today()
+            data_min = data_max = hoje
+
+
+
         # Filtro: "As minhas"
         if "As minhas" in selecionadas:
             df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
@@ -158,6 +187,15 @@ with st.expander("Registro de Solicitações", expanded=True):
         # Filtro: "Não respondidas"
         if "Não respondidas" in selecionadas:
             df_geral = df_geral[df_geral['Respondido'] == "Não"]
+        
+        if data_inicio and data_fim:
+            print(f"data_inicio: {data_inicio}, data_fim: {data_fim}")
+            # — filtro por data usando a coluna datetime
+            df_geral = df_geral[
+                (df_geral['Data_Solicitacao_dt'].dt.date >= data_inicio) &
+                (df_geral['Data_Solicitacao_dt'].dt.date <= data_fim)
+            ]
+
 
         # Selecionando as colunas desejadas
         tx_df_filtrado = df_geral.iloc[:, [0, 1, 7, 2]]
