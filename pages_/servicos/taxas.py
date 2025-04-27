@@ -4,6 +4,7 @@ import pandas as pd
 from load_functions import *
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import re, time #, pyperclip
+import datetime
 # from st_copy_to_clipboard import st_copy_to_clipboard
 
 st.header("Emissão de DAM", anchor=False)
@@ -52,16 +53,14 @@ with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
     with colx:
 
-        col1, col2, col3, col4 = st.columns(4, vertical_alignment="bottom")
+        col1, col2 = st.columns(2, vertical_alignment="top")
 
+        # Inicializando o session_state se necessário
         if 'status_checker' not in st.session_state:
             st.session_state.status_checker = None
             st.session_state.index_status_tx = 0
 
-        # match st.session_state.status_checker:
-        #     case 'Passivo' | 'Deferido' | 'Indeferido':
-        #         status_selecionado_tx = st.session_state.status_checker
-
+        # Atualizando o índice com base no status_checker
         match st.session_state.status_checker:
             case 'Passivo':
                 st.session_state.index_status_tx = 0
@@ -70,12 +69,42 @@ with st.expander("Registro de Solicitações", expanded=True):
             case 'Indeferido':
                 st.session_state.index_status_tx = 2
 
-        status_selecionado_tx = col1.selectbox("Filtro por Status:", options=['Passivo', 'Deferido', 'Indeferido'], key='status_selecionado', index=st.session_state.index_status_tx)
+        # Definindo as opções
+        status_options = ['Passivo', 'Deferido', 'Indeferido']
 
+        # Pegando valor default baseado no índice
+        default_status = [status_options[st.session_state.index_status_tx]]
+
+        # Filtro de Status usando PILLS
+        with col1:
+            status_selecionado_pills = st.pills(
+                label="Filtro por Status:",
+                options=status_options,
+                selection_mode="single",
+                default=default_status,
+                key="status_selecionado_pills",
+                help="Escolha o status do processo"
+            )
+
+        # Atualiza o session_state.status_checker para refletir a escolha atual
+        if status_selecionado_pills:
+            st.session_state.status_checker = status_selecionado_pills[0]
+        else:
+            st.session_state.status_checker = None
+
+        # Filtro de Tipo Processo (continuando o que você já tinha)
         tipo_processo_opcoes = st.session_state.tx_df['Tipo Processo'].unique()  # Valores únicos
-        tipo_selecionado = col2.selectbox("Filtro por Tipo Processo:", options=tipo_processo_opcoes, disabled=True)
 
-        if status_selecionado_tx == 'Deferido' or status_selecionado_tx == 'Indeferido':
+        # with col2:
+        #     tipo_selecionado = st.selectbox(
+        #         "Filtro por Tipo Processo:",
+        #         options=tipo_processo_opcoes,
+        #         disabled=True
+        #     )
+        
+        status_selecionado_tx = status_selecionado_pills
+
+        if st.session_state.status_checker in ['Deferido', 'Indeferido']:
             st.session_state.disable_checkbox_minhas_tx = False
             st.session_state.disable_checkbox_nao_respondidas_tx = False
 
@@ -89,19 +118,45 @@ with st.expander("Registro de Solicitações", expanded=True):
             st.session_state.checkbox_minhas_tx = False
 
 
-        chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_tx, disabled=st.session_state.disable_checkbox_minhas_tx, help="Mostrar somente as tratadas por mim")
-        chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_tx, disabled=st.session_state.disable_checkbox_nao_respondidas_tx)
+        # chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_tx, disabled=st.session_state.disable_checkbox_minhas_tx, help="Mostrar somente as tratadas por mim")
+        # chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_tx, disabled=st.session_state.disable_checkbox_nao_respondidas_tx)
+
+        # Defina as opções disponíveis
+        opcoes = ["As minhas", "Não respondidas"]
+
+        # Determine as opções selecionadas com base no estado atual
+        selecionadas = []
+        if st.session_state.checkbox_minhas_tx:
+            selecionadas.append("As minhas")
+        if st.session_state.checkbox_nao_respondidas_tx:
+            selecionadas.append("Não respondidas")
+
+        # Exiba as pílulas para seleção múltipla
+        with col2:
+            selecionadas = st.pills(
+                label="Filtros",
+                options=opcoes,
+                selection_mode="multi",
+                default=selecionadas,
+                key="filtros_pills",
+                help="Selecione os filtros desejados",
+            )
+
+        # Atualize os estados com base nas seleções
+        st.session_state.checkbox_minhas_tx = "As minhas" in selecionadas
+        st.session_state.checkbox_nao_respondidas_tx = "Não respondidas" in selecionadas
         
         st.session_state.tx_df['Status'] = st.session_state.tx_df['Status'].replace("", "Passivo")
 
         # Filtrando os dados com base no status selecionado
         df_geral = st.session_state.tx_df[st.session_state.tx_df['Status'] == status_selecionado_tx] if status_selecionado_tx else st.session_state.tx_df
-
-        if chk_somente_minhas:
-            df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
-
         
-        if chk_nao_respondidas:
+        # Filtro: "As minhas"
+        if "As minhas" in selecionadas:
+            df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
+        
+        # Filtro: "Não respondidas"
+        if "Não respondidas" in selecionadas:
             df_geral = df_geral[df_geral['Respondido'] == "Não"]
 
         # Selecionando as colunas desejadas
@@ -159,9 +214,31 @@ with st.expander("Registro de Solicitações", expanded=True):
 
     with coly:
         col1, col2 = st.columns(2, vertical_alignment="bottom")
-        teste1 = col1.selectbox("Filtro 1",  options=['Passivo', 'Filtro 1', 'Indeferido'], index=1, disabled=True)
-        teste2 = col2.selectbox("Filtro 2",  options=['Passivo', 'Filtro 2', 'Indeferido'], index=1, disabled=True)
 
+        # Definindo opções
+        opcoes_filtro = ['Alfa', 'Beta', 'Gama', 'Delta']
+
+        # Filtro 1 usando Pills
+        with col1:
+            teste1 = st.segmented_control(
+                label="Ivory tower 1",
+                options=opcoes_filtro,
+                selection_mode="single",
+                default=["Alfa"],
+                disabled=True,
+                key="teste1_pills"
+            )
+
+        # Filtro 2 usando Pills
+        with col2:
+            teste2 = st.segmented_control(
+                label="Ivory tower 2",
+                options=opcoes_filtro,
+                selection_mode="single",
+                default=["Beta"],
+                disabled=True,
+                key="teste2_pills"
+            )
         merged_df = st.session_state.merged_df
         st.session_state.df_geral_2025 = load_df_2025()
 
