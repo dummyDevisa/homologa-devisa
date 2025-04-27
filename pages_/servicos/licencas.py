@@ -138,7 +138,6 @@ with st.expander("Registro de Solicitações", expanded=True):
         # Prepara e filtra DataFrame
         st.session_state.lf_df['Status'] = st.session_state.lf_df['Status'].replace("", "Passivo")
         df_licencas = st.session_state.lf_df.copy()
-        print(f"status_checker_lf: {status_checker_lf}")
         # Filtra por status selecionado
         if status_checker_lf:
             df_licencas = df_licencas[df_licencas['Status'] == status_checker_lf]
