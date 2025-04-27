@@ -51,52 +51,108 @@ with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
 
     if 'status_checker_lf' not in st.session_state:
-        st.session_state.status_checker_lf = None
-        st.session_state.index_status_lf = 0
+        status_checker_lf = None
+        index_status_lf = 0
 
-    match st.session_state.status_checker_lf:
+    match status_checker_lf:
         case 'Passivo':
-            st.session_state.index_status_lf = 0
+            index_status_lf = 0
         case 'Deferido':
-            st.session_state.index_status_lf = 1
+            index_status_lf = 1
         case 'Indeferido':
-            st.session_state.index_status_lf = 2
+            index_status_lf = 2
 
     with colx:
-        col1, col2, col3, col4 = st.columns(4, vertical_alignment="bottom")
-        status_selecionado = col1.selectbox("Status:", options=['Passivo', 'Deferido', 'Indeferido'], index=st.session_state.index_status_lf)
-        tipo_processo_opcoes = st.session_state.lf_df['Tipo Processo'].unique()  # Valores únicos
-        tipo_selecionado = col2.selectbox("Tipo Processo:", options=tipo_processo_opcoes, disabled=True, index=1)
+        # Layout de colunas
+        # col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
+        col1, col2 = st.columns(2, vertical_alignment="bottom")
 
+        # Inicializa estado para filtro de Status (licenças finais)
+        if 'status_checker_lf' not in st.session_state:
+            status_checker_lf = 'Passivo'
+            index_status_lf = 0
 
-        if status_selecionado == 'Deferido' or status_selecionado == 'Indeferido':
-            st.session_state.disable_checkbox_minhas_lf = False
-            st.session_state.disable_checkbox_nao_respondidas_lf = False
+        # Atualiza índice com base no status anterior
+        match status_checker_lf:
+            case 'Passivo':
+                index_status_lf = 0
+            case 'Deferido':
+                index_status_lf = 1
+            case 'Indeferido':
+                index_status_lf = 2
 
-            st.session_state.checkbox_nao_respondidas_lf = True
-            st.session_state.checkbox_minhas_lf = True
-        else:
-            st.session_state.disable_checkbox_minhas_lf = True
-            st.session_state.disable_checkbox_nao_respondidas_lf = True
+        # Opções de Status e default list para pills
+        status_options = ['Passivo', 'Deferido', 'Indeferido']
+        default_status_list = [status_options[index_status_lf]]
 
-            st.session_state.checkbox_nao_respondidas_lf = False
-            st.session_state.checkbox_minhas_lf = False
+        # Pill de Status
+        with col1:
+            selected_status_list = st.pills(
+                label="Status:",
+                options=status_options,
+                selection_mode="single",
+                default=default_status_list,
+                key="status_lf_pills",
+                help="Selecione o status do processo"
+            )
+        # Atualiza session_state apenas se houver mudança
+        if selected_status_list and selected_status_list[0] != status_checker_lf:
+            status_checker_lf = selected_status_list
 
+        # Pill de Tipo de Processo (desabilitado)
+        # tipo_options = st.session_state.lf_df['Tipo Processo'].unique().tolist()
+        # default_tipo_list = [tipo_options[1]] if len(tipo_options) > 1 else [tipo_options[0]]
+        # with col2:
+        #     selected_tipo = st.pills(
+        #         label="Tipo Processo:",
+        #         options=tipo_options,
+        #         selection_mode="single",
+        #         default=default_tipo_list,
+        #         disabled=True,
+        #         key="tipo_lf_pills",
+        #         help="Filtro de tipo de processo (fixo)"
+        #     )
 
-        chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_lf, disabled=st.session_state.disable_checkbox_minhas_lf, help="Mostrar somente as tratadas por mim")
-        
-        chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_lf, disabled=st.session_state.disable_checkbox_nao_respondidas_lf)
+        # # Habilita/desabilita filtros adicionais com base no status
+        # is_def_inde = status_checker_lf in ['Deferido', 'Indeferido']
+        # st.session_state.disable_minhas_lf = not is_def_inde
+        # st.session_state.disable_nao_respondidas_lf = not is_def_inde
 
+        # Pills adicionais: "As minhas" & "Não respondidas"
+        with col2:
+            filtros_opts = ["As minhas", "Não respondidas"]
+            # default_filters = []
+            # if is_def_inde:
+            #     default_filters = filtros_opts.copy()
+            selected_filters = st.pills(
+                label="Filtros adicionais:",
+                options=filtros_opts,
+                selection_mode="multi",
+                # default=default_filters,
+                key="filtros_adicionais_lf",
+                help="Selecione filtros adicionais"
+            )
+        chk_somente_minhas = "As minhas" in selected_filters
+        chk_nao_respondidas = "Não respondidas" in selected_filters
+
+        # Prepara e filtra DataFrame
         st.session_state.lf_df['Status'] = st.session_state.lf_df['Status'].replace("", "Passivo")
-        df_licencas = st.session_state.lf_df[st.session_state.lf_df['Status'] == status_selecionado] if status_selecionado else st.session_state.lf_df
-        
+        df_licencas = st.session_state.lf_df.copy()
+        print(f"status_checker_lf: {status_checker_lf}")
+        # Filtra por status selecionado
+        if status_checker_lf:
+            df_licencas = df_licencas[df_licencas['Status'] == status_checker_lf]
+
+        # Aplica filtros adicionais
         if chk_somente_minhas:
             df_licencas = df_licencas[df_licencas['Servidor'] == st.session_state.sessao_servidor]
-        
         if chk_nao_respondidas:
             df_licencas = df_licencas[df_licencas['Respondido'] == "Não"]
 
+        # Exibe DataFrame final
         lf_df_filtrado = df_licencas.iloc[:, [0, 1, 4, 2, 8, 7]]
+
+
         gg = GridOptionsBuilder.from_dataframe(lf_df_filtrado)
         gg.configure_default_column(
             cellStyle={'font-size': '15px'},
@@ -142,10 +198,32 @@ with st.expander("Registro de Solicitações", expanded=True):
             st.session_state.lf_clear_clicked = False
 
     with coly:
-        col5, col6, col7 = st.columns(3, vertical_alignment="bottom")
-        teste1 = col5.selectbox("Filtro 1",  options=['Passivo', 'Filtro 1', 'Indeferido'], index=1, disabled=True)
-        teste2 = col6.selectbox("Filtro 2",  options=['Passivo', 'Filtro 2', 'Indeferido'], index=1, disabled=True)
-        teste3 = col7.selectbox("Filtro 3",  options=['Passivo', 'Filtro 3', 'Indeferido'], index=1, disabled=True)
+        col1, col2 = st.columns(2, vertical_alignment="bottom")
+
+        # Definindo opções
+        opcoes_filtro = ['Alfa', 'Beta', 'Gama', 'Delta']
+
+        # Filtro 1 usando Pills
+        with col1:
+            teste1 = st.segmented_control(
+                label="Ivory tower 1",
+                options=opcoes_filtro,
+                selection_mode="single",
+                default=["Alfa"],
+                disabled=True,
+                key="teste1_pills"
+            )
+
+        # Filtro 2 usando Pills
+        with col2:
+            teste2 = st.segmented_control(
+                label="Ivory tower 2",
+                options=opcoes_filtro,
+                selection_mode="single",
+                default=["Beta"],
+                disabled=True,
+                key="teste2_pills"
+            )
 
 
         lf_merged_df = st.session_state.merged_df
@@ -495,7 +573,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 if rerun:       
                     st.session_state.btn_clear_lf = True
                     st.session_state.reload_lf_df = True
-                    st.session_state.status_checker_lf = status_selecionado
+                    status_checker_lf = selected_status_list
                     st.rerun()
             
             if btn_clear_lf:    

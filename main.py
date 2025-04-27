@@ -94,7 +94,7 @@ def open_system(user, privilege):
                 ],
                 "Recursos": [
                     st.Page("pages_/recursos/pesquisa.py", title="Pesquisa", icon=":material/search:"),
-                    st.Page("pages_/recursos/assistente.py", title="Assistente IA", icon=":material/robot_2:"),
+                    st.Page("pages_/recursos/assistente.py", title="Assistente IA 🔥", icon=":material/robot_2:"),
                 ],
                 "Relatórios":[
                     st.Page("pages_/relatorios/overview.py", title="Resumo", icon=":material/wallpaper:", default=True),
