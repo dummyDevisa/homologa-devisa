@@ -3,7 +3,7 @@ from load_functions import *
 from webdriver_certifica import selenium_certifica_doc
 import gspread
 
-if 'val_ano' not in st.session_state:
+if 'raw_lf_digitadas' not in st.session_state:
     st.session_state.val_ano = str(get_current_year_utc3())
     st.session_state.val_proc = ""
     st.session_state.val_processo = ""
