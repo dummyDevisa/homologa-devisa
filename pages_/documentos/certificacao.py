@@ -156,7 +156,7 @@ else:
     atividades_liberadas = f"CÓDIGO: {st.session_state.val_codigo} DESCRIÇÃO: {st.session_state.val_descricao}"
 
 
-st.header("Certificação de LFs (experimental)", anchor=False)
+st.header("Certificação de LFs", anchor=False)
 
 with st.container(border=True):
     # st.button("Testar webdriver", on_click=selenium_certifica_doc, use_container_width=True)
@@ -302,7 +302,7 @@ with st.container(border=True):
     
     def validar_licenca():
         if st.session_state.btn_fileUploader is None:
-            return st.toast(":red[Anexe a Licença de FUncionamento no botão de Upload.]")
+            return st.toast(":red[Anexe a Licença de Funcionamento no botão de Upload.]")
         
         if not st.session_state.df_proc.iloc[0]["Processo"]:
             return st.toast(":red[Pesquise por um processo antes de continuar.]")
@@ -311,82 +311,108 @@ with st.container(border=True):
 
         match grau_risco:
             case 'Baixo' | 'Médio' | 'Alto':
-                st.toast(f"Tentando enviar a LF {val_numLf}. Aguarde...")
-                #
-                #
-                # implementar geração da data de envio
-                # tentar enviar por e-mail
-                # salvar os dados na planilha
-                #
-                #
-                #
-                #
+                st.toast(f"Tentando enviar a LF {st.session_state.val_numLf}. Aguarde...")
             case _:
                 return st.toast(":red[Preencha o campo de Risco (Alto, Médio ou Baixo)]")
 
-        data_atual = get_current_date_utc3()
-        obs_certificador = st.session_state.val_obis
-        valores = [val_numLf, val_dataEmissao, val_numProc, val_nomeEmpresa, val_cpfCnpj, val_email1]
+        # Captura valores obrigatórios
+        num_lf = st.session_state.val_numLf
+        data_emissao = st.session_state.val_dataEmissao
+        num_proc = val_numProc
+        nome_empresa = st.session_state.val_nomeEmpresa
+        cpf_cnpj = st.session_state.val_cpfCnpj
+        email1 = st.session_state.val_email1
 
-        for val in valores:
+        # Verifica preenchimento
+        for val in (num_lf, data_emissao, num_proc, nome_empresa, cpf_cnpj, email1):
             if not val:
-                return st.toast(":red[Os campos 'número LF', data emissão', 'número processo', 'nome empresa', 'CPF/CNPJ' e 'E-mail' precisam estar preenchidos]")
+                return st.toast(":red[Os campos 'número LF', 'data emissão', 'número processo', 'nome empresa', 'CPF/CNPJ' e 'E-mail' precisam estar preenchidos]")
 
-        despacho = f'Segue em anexo a Licença de Funcionamento <strong>{val_numLf}</strong>, emitida em <strong>{val_dataEmissao}</strong> e referente ao Processo <strong>{val_numProc}</strong> (Empresa <strong>{val_nomeEmpresa}</strong>, CPF/CNPJ <strong>{val_cpfCnpj}</strong>).'
-
-        
+        # Prepara despacho e envia e-mail
+        despacho = (
+            f"Segue em anexo a Licença de Funcionamento <strong>{num_lf}</strong>, emitida em <strong>{data_emissao}</strong> e referente ao Processo <strong>{num_proc}</strong> (Empresa <strong>{nome_empresa}</strong>, CPF/CNPJ <strong>{cpf_cnpj}</strong>)."
+        )
 
         email_enviarLicenca(
-            kw_despacho = despacho,
-            kw_ano = st.session_state.ano_lf,
-            kw_email1 = val_email1,
-            kw_email2 = val_email2,
-            kw_licenca = st.session_state.btn_fileUploader,
+            kw_despacho=despacho,
+            kw_ano=st.session_state.ano_lf,
+            kw_email1=email1,
+            kw_email2=st.session_state.val_email2,
+            kw_licenca=st.session_state.btn_fileUploader,
         )
-        
-        print(f'st.session_state.raw_lf_digitadas: {st.session_state.raw_lf_digitadas}')
-        
+
+
+        st.toast("**Salvando dados na base de LFs...**")
+        # Seleciona worksheet correta
         if not st.session_state.raw_lf_digitadas:
             worksheet = get_worksheet(1, st.secrets['sh_keys']['geral_lfs'])
         else:
             worksheet = st.session_state.raw_lf_digitadas
 
-        # 0) converte para string pra garantia de comparação
+
+        # # procs = [17679, 9881, 7982, 12391, 18120, 3619, 8429, 7897, 6552, 18689, 18116, 18109, 18119, 16225, 16476, 15394,
+        # #          8222, 8155, 8102, 6256, 5935, 3969, 3110, 7487, 6891, 3277, 12206, 3327, 4372, 8222, 8105, 8102]
+
+        # # procs = [
+        # #          8222, 8155, 8102, 6256, 5935, 3969, 3110, 7487, 6891, 3277, 12206, 3327, 4372, 8222, 8105, 8102]
+
+        # procs = [18109, 18119, 16225, 16476, 15394]
+
+        # for num_proc in procs:
+        #     proc_str = str(num_proc)
+        #     year_str = str(st.session_state.ano_lf)
+        #     cells = worksheet.findall(proc_str, in_column=1)
+        #     updated = 0
+
+            
+
+        #     for cell in cells:
+        #         print(f"cell {cell}")
+        #         row = cell.row
+        #         print(f"worksheet.cell(row, 2).: {worksheet.cell(row, 17).value} e year_str: {year_str}")
+        #         if worksheet.cell(row, 17).value == year_str:
+        #             # Atualiza somente 3 colunas: Q (risco), R (data), S (observação)
+        #             range_lf = f"AA{row}:AB{row}"
+        #             # valores = [[grau_risco, get_current_date_utc3(), st.session_state.val_obis]]
+        #             valores = [["26/04/2025", st.session_state.val_obis]]
+        #             worksheet.update(range_lf, valores, raw=False)
+        #             updated += 1
+        #         print(f"Zé {updated}")
+
+        # # Feedback ao usuário
+        # if updated:
+        #     st.toast(f":green[Dados salvos na base de LFs em {updated} linha(s)]")
+        # else:
+        #     st.warning("Nenhuma linha encontrada para esse processo e ano.")
+
+        # load_duas_bases.clear()
+        # certifica_lf_resetFields()
+
+        
+        # Atualiza dados na planilha
         proc_str = str(st.session_state.val_proc)
-        year_str = str(st.session_state.val_ano)
-        # 1) Encontra todas as ocorrências do processo na coluna A (coluna 1)
+        year_str = str(st.session_state.ano_lf)
         cells = worksheet.findall(proc_str, in_column=1)
         updated = 0
+
         for cell in cells:
-            row = cell.row 
-            # 2) Verifica se na coluna do ano (por ex. B, coluna 2) bate com o ano filtrado
-            if worksheet.cell(row, 2).value == year_str:
-        
-                # 3) Prepara o intervalo e os valores
-                range_lf = f"Q{row}:AB{row}"
-                values = [grau_risco, data_atual, obs_certificador]
-                worksheet.update(range_lf, [values], raw=False)
+            row = cell.row
+            if worksheet.cell(row, 17).value == year_str:
+                # Atualiza somente 3 colunas: Z (risco), AA (data), AB (observação)
+                range_lf = f"Z{row}:AB{row}"
+                valores = [[grau_risco, get_current_date_utc3(), st.session_state.val_obis]]
+                worksheet.update(range_lf, valores, raw=False)
                 updated += 1
 
-        # 4) Feedback ao usuário
+        # Feedback ao usuário
         if updated:
-            st.toast(f":green[Dados salvos na base de LFs em {updated} linha(s)]")
+            # st.toast(f":green[Dados salvos na base de LFs em {updated} linha(s)]")
+            st.toast(f":green[**Dados salvos na base de LFs**")
         else:
-            st.warning("Nenhuma linha encontrada para esse processo e ano.")
-
+            st.toast(":red[**Nenhuma linha encontrada para esse processo e ano.**]")
 
         load_duas_bases.clear()
-        
         certifica_lf_resetFields()
-
-        # if st.session_state.is_email_sended_entregalf:
-        #     st.toast(f":green[LF encaminhada para {val_email1}, {val_email2}]")
-        #     st.session_state.is_email_sended_entregalf = False
-        
-        # print(f"data_atual: {data_atual}")
-        # print(f"grau_risco: {grau_risco}")
-        # print(f"obs_certificador: {obs_certificador}")
-    
 
     def clear_fields():
         st.session_state.val_ano = str(get_current_year_utc3())
@@ -424,6 +450,3 @@ with st.container(border=True):
     c4.link_button("Abrir Certifica", url='https://sistemas.belem.pa.gov.br/portaldoservidor/#/login', use_container_width=True, icon=':material/verified_user:')
     # c5.button("Enviar LF", key='btn_enviarLf', type='primary', use_container_width=True, icon=':material/send:', disabled=st.session_state.dbtn_enviar)
     c5.button("Enviar LF", key='btn_enviarLf', type='primary', on_click=validar_licenca, use_container_width=True, icon=':material/send:', disabled=False)
-
-                
-
