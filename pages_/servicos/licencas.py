@@ -4,7 +4,9 @@ from load_functions import *
 from webdriver_gdoc import *
 # from streamlit_gsheets import GSheetsConnection
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-import json, gspread
+# import json, gspread
+# import re, time #, pyperclip
+import datetime
 
 st.header("Licença de Funcionamento", anchor=False)
 
@@ -29,6 +31,10 @@ if 'lf_df' not in st.session_state:
     lf_df_aux = load_lf_df()
     st.session_state.lf_df = lf_df_aux[lf_df_aux["Validade"] != "Inválido"]
     st.session_state.lf_df = st.session_state.lf_df.reset_index(drop=True)
+    st.session_state.lf_df['Data_Solicitacao_dt'] = pd.to_datetime(
+        st.session_state.lf_df['Data Solicitação'],
+        format='%d/%m/%y, %H:%M'
+    )
 
 if st.session_state.reload_lf_df:
     st.session_state.lf_df = None
@@ -36,6 +42,10 @@ if st.session_state.reload_lf_df:
     df_lf_aux = load_lf_df()
     st.session_state.lf_df = df_lf_aux[df_lf_aux["Validade"] != "Inválido"]
     st.session_state.lf_df = st.session_state.lf_df.reset_index(drop=True)
+    st.session_state.lf_df['Data_Solicitacao_dt'] = pd.to_datetime(
+        st.session_state.lf_df['Data Solicitação'],
+        format='%d/%m/%y, %H:%M'
+    )
     st.session_state.reload_lf_df = False
 
 if 'checkbox_minhas_lf' not in st.session_state:
@@ -50,106 +60,140 @@ with st.expander("Registro de Solicitações", expanded=True):
 
     colx, coly = st.columns(2, vertical_alignment="top")
 
-    if 'status_checker_lf' not in st.session_state:
-        status_checker_lf = None
-        index_status_lf = 0
-
-    match status_checker_lf:
-        case 'Passivo':
-            index_status_lf = 0
-        case 'Deferido':
-            index_status_lf = 1
-        case 'Indeferido':
-            index_status_lf = 2
-
     with colx:
-        # Layout de colunas
-        # col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
-        col1, col2 = st.columns(2, vertical_alignment="bottom")
-
-        # Inicializa estado para filtro de Status (licenças finais)
+        col1, col2, col3 = st.columns([0.9, 1.0, 1.1], vertical_alignment="center", gap="small")
+        
+        # Inicializando o session_state se necessário
         if 'status_checker_lf' not in st.session_state:
-            status_checker_lf = 'Passivo'
-            index_status_lf = 0
+            st.session_state.status_checker_lf = None
+            st.session_state.index_status_lf = 0
 
-        # Atualiza índice com base no status anterior
-        match status_checker_lf:
+        # Atualizando o índice com base no status_checker
+        match st.session_state.status_checker_lf:
             case 'Passivo':
-                index_status_lf = 0
+                st.session_state.index_status_lf = 0
             case 'Deferido':
-                index_status_lf = 1
+                st.session_state.index_status_lf = 1
             case 'Indeferido':
-                index_status_lf = 2
+                st.session_state.index_status_lf = 2
 
-        # Opções de Status e default list para pills
+        # Definindo as opções
         status_options = ['Passivo', 'Deferido', 'Indeferido']
-        default_status_list = [status_options[index_status_lf]]
 
-        # Pill de Status
-        with col1:
-            selected_status_list = st.pills(
-                label="Status:",
+        # Pegando valor default baseado no índice
+        default_status = [status_options[st.session_state.index_status_lf]]
+
+        # Filtro de Status usando PILLS
+        with col3:
+            status_selecionado_pills = st.pills(
+                label="Filtro por Status:",
                 options=status_options,
                 selection_mode="single",
-                default=default_status_list,
-                key="status_lf_pills",
-                help="Selecione o status do processo"
+                default=default_status,
+                key="status_selecionado_pills",
+                help="Escolha o status do processo",
+                label_visibility='collapsed'
             )
-        # Atualiza session_state apenas se houver mudança
-        if selected_status_list and selected_status_list[0] != status_checker_lf:
-            status_checker_lf = selected_status_list
 
-        # Pill de Tipo de Processo (desabilitado)
-        # tipo_options = st.session_state.lf_df['Tipo Processo'].unique().tolist()
-        # default_tipo_list = [tipo_options[1]] if len(tipo_options) > 1 else [tipo_options[0]]
-        # with col2:
-        #     selected_tipo = st.pills(
-        #         label="Tipo Processo:",
-        #         options=tipo_options,
-        #         selection_mode="single",
-        #         default=default_tipo_list,
-        #         disabled=True,
-        #         key="tipo_lf_pills",
-        #         help="Filtro de tipo de processo (fixo)"
-        #     )
+        # Atualiza o session_state.status_checker para refletir a escolha atual
+        if status_selecionado_pills:
+            st.session_state.status_checker_lf = status_selecionado_pills[0]
+        else:
+            st.session_state.status_checker_lf = None
 
-        # # Habilita/desabilita filtros adicionais com base no status
-        # is_def_inde = status_checker_lf in ['Deferido', 'Indeferido']
-        # st.session_state.disable_minhas_lf = not is_def_inde
-        # st.session_state.disable_nao_respondidas_lf = not is_def_inde
+        # Filtro de Tipo Processo (continuando o que você já tinha)
+        tipo_processo_opcoes = st.session_state.lf_df['Tipo Processo'].unique()  # Valores únicos
+        
+        status_selecionado_lf = status_selecionado_pills
 
-        # Pills adicionais: "As minhas" & "Não respondidas"
+        if st.session_state.status_checker_lf in ['Deferido', 'Indeferido']:
+            st.session_state.disable_checkbox_minhas_lf = False
+            st.session_state.disable_checkbox_nao_respondidas_lf = False
+
+            st.session_state.checkbox_nao_respondidas_lf = True
+            st.session_state.checkbox_minhas_lf = True
+        else:
+            st.session_state.disable_checkbox_minhas_lf = True
+            st.session_state.disable_checkbox_nao_respondidas_lf = True
+
+            st.session_state.checkbox_nao_respondidas_lf = False
+            st.session_state.checkbox_minhas_lf = False
+
+        # Defina as opções disponíveis
+        opcoes = ["As minhas", "Não resp."]
+
+        # Determine as opções selecionadas com base no estado atual
+        selecionadas = []
+        if st.session_state.checkbox_minhas_lf:
+            selecionadas.append("As minhas")
+        if st.session_state.checkbox_nao_respondidas_lf:
+            selecionadas.append("Não resp.")
+
+        # Exiba as pílulas para seleção múltipla
         with col2:
-            filtros_opts = ["As minhas", "Não respondidas"]
-            # default_filters = []
-            # if is_def_inde:
-            #     default_filters = filtros_opts.copy()
-            selected_filters = st.pills(
-                label="Filtros adicionais:",
-                options=filtros_opts,
+            selecionadas = st.pills(
+                label="Filtros",
+                options=opcoes,
                 selection_mode="multi",
-                # default=default_filters,
-                key="filtros_adicionais_lf",
-                help="Selecione filtros adicionais"
+                default=selecionadas,
+                key="filtros_pills",
+                help="Selecione os filtros desejados",
+                label_visibility='collapsed'
             )
-        chk_somente_minhas = "As minhas" in selected_filters
-        chk_nao_respondidas = "Não respondidas" in selected_filters
+        
+        with col1:
+            today = datetime.date.today()
+            thirty_days_ago = today - datetime.timedelta(days=30)
 
-        # Prepara e filtra DataFrame
+            # 1) Captura o retorno numa só variável
+            range_dates = st.date_input(
+                "Intervalo de Datas",
+                value=(thirty_days_ago + datetime.timedelta(days=1),today),
+                min_value=thirty_days_ago + datetime.timedelta(days=1),
+                max_value=today,
+                format="DD/MM/YYYY",
+                label_visibility='collapsed'
+            )
+
+            # 2) Verifica que veio uma sequência de duas datas
+            if isinstance(range_dates, (tuple, list)) and len(range_dates) == 2:
+                data_inicio, data_fim = range_dates
+            else:
+                # Aqui você pode:
+                # - Dar um warning pro usuário
+                # - Usar hoje/hoje como fallback
+                # - Tratar de outra forma
+                st.toast("🛑 :red[**Selecione um intervalo de datas.**]")
+                # Exemplo de fallback:
+                data_inicio = data_fim = range_dates if not isinstance(range_dates, (tuple, list)) else range_dates[0]
+
+        # Atualize os estados com base nas seleções
+        st.session_state.checkbox_minhas_lf = "As minhas" in selecionadas
+        st.session_state.checkbox_nao_respondidas_lf = "Não resp." in selecionadas
+        
         st.session_state.lf_df['Status'] = st.session_state.lf_df['Status'].replace("", "Passivo")
-        df_licencas = st.session_state.lf_df.copy()
-        # Filtra por status selecionado
-        if status_checker_lf:
-            df_licencas = df_licencas[df_licencas['Status'] == status_checker_lf]
 
-        # Aplica filtros adicionais
-        if chk_somente_minhas:
-            df_licencas = df_licencas[df_licencas['Servidor'] == st.session_state.sessao_servidor]
-        if chk_nao_respondidas:
-            df_licencas = df_licencas[df_licencas['Respondido'] == "Não"]
+        # Filtrando os dados com base no status selecionado
+        df_geral = st.session_state.lf_df[st.session_state.lf_df['Status'] == status_selecionado_lf] if status_selecionado_lf else st.session_state.lf_df
+
+        # Filtro: "As minhas"
+        if "As minhas" in selecionadas:
+            df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
+        
+        # Filtro: "Não resp."
+        if "Não resp." in selecionadas:
+            df_geral = df_geral[df_geral['Respondido'] == "Não"]
+        
+        if data_inicio and data_fim:
+            # print(f"data_inicio: {data_inicio}, data_fim: {data_fim}")
+            # — filtro por data usando a coluna datetime
+            df_geral = df_geral[
+                (df_geral['Data_Solicitacao_dt'].dt.date >= data_inicio) &
+                (df_geral['Data_Solicitacao_dt'].dt.date <= data_fim)
+            ]
 
         # Exibe DataFrame final
-        lf_df_filtrado = df_licencas.iloc[:, [0, 1, 4, 2, 8, 7]]
+        lf_df_filtrado = df_geral.iloc[:, [0, 1, 4, 2, 8, 7]]
 
 
         gg = GridOptionsBuilder.from_dataframe(lf_df_filtrado)
@@ -188,7 +232,7 @@ with st.expander("Registro de Solicitações", expanded=True):
         selected_row_lf = grid_response_lf.get('selected_rows', None)
             
         if not selected_row_lf is None: 
-            selected_index_lf = df_licencas.loc[df_licencas['Código Solicitação'] == selected_row_lf['Código Solicitação'].iloc[0]].index
+            selected_index_lf = df_geral.loc[df_geral['Código Solicitação'] == selected_row_lf['Código Solicitação'].iloc[0]].index
 
         if 'aggrid_gh_col2' not in st.session_state:
             st.session_state.aggrid_gh_col2 = None
@@ -210,19 +254,20 @@ with st.expander("Registro de Solicitações", expanded=True):
                 selection_mode="single",
                 default=["Alfa"],
                 disabled=True,
-                key="teste1_pills"
+                key="teste1_pills",
+                label_visibility='collapsed'
             )
 
-        # Filtro 2 usando Pills
-        with col2:
-            teste2 = st.segmented_control(
-                label="Ivory tower 2",
-                options=opcoes_filtro,
-                selection_mode="single",
-                default=["Beta"],
-                disabled=True,
-                key="teste2_pills"
-            )
+        # # Filtro 2 usando Pills
+        # with col2:
+        #     teste2 = st.segmented_control(
+        #         label="Ivory tower 2",
+        #         options=opcoes_filtro,
+        #         selection_mode="single",
+        #         default=["Beta"],
+        #         disabled=True,
+        #         key="teste2_pills"
+        #     )
 
 
         lf_merged_df = st.session_state.merged_df
@@ -423,9 +468,15 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
 
             col1, col2, col3 = st.columns([1.5,1,0.5], vertical_alignment="bottom")
 
+            match len(treated_line_lf["CPF / CNPJ"]):
+                case 18:
+                    btn_cnpj_lf_disabled = False
+                case _:
+                    btn_cnpj_lf_disabled = True
+
             razao_social_lf = col1.text_input("Nome Estab.", value=treated_line_lf["Razão Social"])
             cpf_cnpj_lf = col2.text_input("CPF / CNPJ", value=treated_line_lf["CPF / CNPJ"])             
-            btn_cnpj_lf = col3.form_submit_button("", use_container_width=True, icon=":material/search:")
+            btn_cnpj_lf = col3.form_submit_button("", use_container_width=True, icon=":material/search:",  disabled=btn_cnpj_lf_disabled)
 
             if btn_cnpj_lf:
                 if len(treated_line_lf["CPF / CNPJ"]) == 18:
@@ -572,7 +623,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 if rerun:       
                     st.session_state.btn_clear_lf = True
                     st.session_state.reload_lf_df = True
-                    status_checker_lf = selected_status_list
                     st.rerun()
             
             if btn_clear_lf:    

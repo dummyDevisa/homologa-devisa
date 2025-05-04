@@ -270,19 +270,19 @@ session_data = verify_session(f"usr_sess_{st.session_state.my_ip}")
 if not session_data:
     interface_logon(usr_list)
 else:
-    try:
-        if session_data:
-            for nm in usr_list['Name']:
-                if nm == session_data["username"]:
-                    index = usr_list[usr_list["Name"] == nm].index[0]
-                    psw_stored = usr_list.loc[index, "Password"]
-                    if psw_stored == session_data["password"]:
-                        open_system(session_data["username"], session_data["privilege"])
-                    else:
-                        delete_cookie(f"usr_sess_{st.session_state.my_ip}")
-                        streamlit_js_eval(js_expressions="parent.window.location.reload()")
-    except Exception as e:
-        print(e)
-        st.error("**Houve um erro inesperado. Consulte os logs.**")
+    # try:
+    if session_data:
+        for nm in usr_list['Name']:
+            if nm == session_data["username"]:
+                index = usr_list[usr_list["Name"] == nm].index[0]
+                psw_stored = usr_list.loc[index, "Password"]
+                if psw_stored == session_data["password"]:
+                    open_system(session_data["username"], session_data["privilege"])
+                else:
+                    delete_cookie(f"usr_sess_{st.session_state.my_ip}")
+                    streamlit_js_eval(js_expressions="parent.window.location.reload()")
+    # except Exception as e:
+    #     print(e)
+    #     st.error("**Houve um erro inesperado. Consulte os logs.**")
 
 st.session_state.my_ip = None

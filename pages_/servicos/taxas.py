@@ -43,6 +43,10 @@ if st.session_state.reload_tx_df:
     df_div_aux = load_df()
     st.session_state.tx_df = df_div_aux[df_div_aux["Validade"] != "Inválido"]
     st.session_state.tx_df = st.session_state.tx_df.reset_index(drop=True)
+    st.session_state.tx_df['Data_Solicitacao_dt'] = pd.to_datetime(
+        st.session_state.tx_df['Data Solicitação'],
+        format='%d/%m/%y, %H:%M'
+    )
     st.session_state.reload_tx_df = False
 
 if 'checkbox_minhas_tx' not in st.session_state:
@@ -58,7 +62,7 @@ with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
     with colx:
 
-        col1, col2, col3 = st.columns([0.8,1,1.2], vertical_alignment="center", gap="small")
+        col1, col2, col3 = st.columns([0.9, 1.0, 1.1], vertical_alignment="center", gap="small")
 
         # Inicializando o session_state se necessário
         if 'status_checker' not in st.session_state:
@@ -116,19 +120,15 @@ with st.expander("Registro de Solicitações", expanded=True):
             st.session_state.checkbox_nao_respondidas_tx = False
             st.session_state.checkbox_minhas_tx = False
 
-
-        # chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_tx, disabled=st.session_state.disable_checkbox_minhas_tx, help="Mostrar somente as tratadas por mim")
-        # chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_tx, disabled=st.session_state.disable_checkbox_nao_respondidas_tx)
-
         # Defina as opções disponíveis
-        opcoes = ["As minhas", "Não respondidas"]
+        opcoes = ["As minhas", "Não resp."]
 
         # Determine as opções selecionadas com base no estado atual
         selecionadas = []
         if st.session_state.checkbox_minhas_tx:
             selecionadas.append("As minhas")
         if st.session_state.checkbox_nao_respondidas_tx:
-            selecionadas.append("Não respondidas")
+            selecionadas.append("Não resp.")
 
         # Exiba as pílulas para seleção múltipla
         with col2:
@@ -143,17 +143,14 @@ with st.expander("Registro de Solicitações", expanded=True):
             )
         
         with col1:
-            # limites para o picker
             today = datetime.date.today()
-            next_year = today.year
-            jan_1 = datetime.date(next_year, 1, 1)
-            dec_31 = datetime.date(next_year, 12, 31)
+            thirty_days_ago = today - datetime.timedelta(days=30)
 
             data_inicio, data_fim = st.date_input(
                 "Intervalo de Datas",
-                value=(jan_1, jan_1 + datetime.timedelta(days=6)),
-                min_value=jan_1,
-                max_value=dec_31,
+                value=(thirty_days_ago + datetime.timedelta(days=1), today),  # 04/04/2025 a 03/05/2025
+                min_value=thirty_days_ago + datetime.timedelta(days=1),
+                max_value=today,
                 format="DD/MM/YYYY",
                 label_visibility='collapsed'
             )
@@ -161,31 +158,19 @@ with st.expander("Registro de Solicitações", expanded=True):
 
         # Atualize os estados com base nas seleções
         st.session_state.checkbox_minhas_tx = "As minhas" in selecionadas
-        st.session_state.checkbox_nao_respondidas_tx = "Não respondidas" in selecionadas
+        st.session_state.checkbox_nao_respondidas_tx = "Não resp." in selecionadas
         
         st.session_state.tx_df['Status'] = st.session_state.tx_df['Status'].replace("", "Passivo")
 
-
-
         # Filtrando os dados com base no status selecionado
         df_geral = st.session_state.tx_df[st.session_state.tx_df['Status'] == status_selecionado_tx] if status_selecionado_tx else st.session_state.tx_df
-
-        if not df_geral.empty:
-            data_min = df_geral['Data_Solicitacao_dt'].min().date()
-            data_max = df_geral['Data_Solicitacao_dt'].max().date()
-        else:
-            # caso df_geral fique vazio, define defaults razoáveis
-            hoje = datetime.date.today()
-            data_min = data_max = hoje
-
-
 
         # Filtro: "As minhas"
         if "As minhas" in selecionadas:
             df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
         
-        # Filtro: "Não respondidas"
-        if "Não respondidas" in selecionadas:
+        # Filtro: "Não resp."
+        if "Não resp." in selecionadas:
             df_geral = df_geral[df_geral['Respondido'] == "Não"]
         
         if data_inicio and data_fim:
@@ -251,22 +236,28 @@ with st.expander("Registro de Solicitações", expanded=True):
         st.session_state.clear_clicked = False
 
     with coly:
-        col1, col2 = st.columns(2, vertical_alignment="bottom")
+        col1, col2 = st.columns([0.5, 1.5], vertical_alignment="center")
 
         # Definindo opções
         opcoes_filtro = ['Alfa', 'Beta', 'Gama', 'Delta']
 
         # Filtro 1 usando Pills
+        # with col1:
+        #     teste1 = st.segmented_control(
+        #         label="Ivory tower 1",
+        #         options=opcoes_filtro,
+        #         selection_mode="single",
+        #         default=["Alfa"],
+        #         disabled=True,
+        #         key="teste1_pills",
+        #         label_visibility='collapsed'
+        #     )
         with col1:
-            teste1 = st.segmented_control(
-                label="Ivory tower 1",
-                options=opcoes_filtro,
-                selection_mode="single",
-                default=["Alfa"],
+            teste1 = st.text_input(
+                label_visibility='collapsed',
+                label='Teste 1',
                 disabled=True,
-                key="teste1_pills"
             )
-
         # Filtro 2 usando Pills
         with col2:
             teste2 = st.segmented_control(
@@ -275,7 +266,8 @@ with st.expander("Registro de Solicitações", expanded=True):
                 selection_mode="single",
                 default=["Beta"],
                 disabled=True,
-                key="teste2_pills"
+                key="teste2_pills",
+                label_visibility='collapsed'
             )
         merged_df = st.session_state.merged_df
         st.session_state.df_geral_2025 = load_df_2025()

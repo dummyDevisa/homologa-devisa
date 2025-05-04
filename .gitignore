@@ -6,5 +6,3 @@ databases/data_raw/
 test.py
 webdriver/
 proxy.py
-dist/
-build/
