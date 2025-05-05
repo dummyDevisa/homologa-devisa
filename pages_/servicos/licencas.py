@@ -241,34 +241,28 @@ with st.expander("Registro de Solicitações", expanded=True):
             st.session_state.lf_clear_clicked = False
 
     with coly:
-        col1, col2 = st.columns(2, vertical_alignment="bottom")
+        col1, col2 = st.columns([0.5, 1.5], vertical_alignment="center")
 
         # Definindo opções
         opcoes_filtro = ['Alfa', 'Beta', 'Gama', 'Delta']
 
-        # Filtro 1 usando Pills
         with col1:
-            teste1 = st.segmented_control(
-                label="Ivory tower 1",
-                options=opcoes_filtro,
-                selection_mode="single",
-                default=["Alfa"],
+            teste1 = st.text_input(
+                label_visibility='collapsed',
+                label='Teste 1',
                 disabled=True,
-                key="teste1_pills",
-                label_visibility='collapsed'
             )
 
-        # # Filtro 2 usando Pills
-        # with col2:
-        #     teste2 = st.segmented_control(
-        #         label="Ivory tower 2",
-        #         options=opcoes_filtro,
-        #         selection_mode="single",
-        #         default=["Beta"],
-        #         disabled=True,
-        #         key="teste2_pills"
-        #     )
-
+        with col2:
+            teste2 = st.segmented_control(
+                label="Ivory tower 2",
+                options=opcoes_filtro,
+                selection_mode="single",
+                default=["Beta"],
+                disabled=True,
+                key="teste2_pills",
+                label_visibility='collapsed'
+            )
 
         lf_merged_df = st.session_state.merged_df
         
@@ -343,14 +337,10 @@ with st.expander("Registro de Solicitações", expanded=True):
 
         if 'sel_merged_lf' not in st.session_state:
             st.session_state.sel_merged_lf = None
-            st.session_state.sel_merged_lf_clear = False
 
         st.session_state.sel_merged_lf = grid_response_merged_lf.get('selected_rows', None)
-        
-        if 'close_this_damn_json' not in st.session_state:
-            st.session_state.close_this_damn_json = False
 
-        @st.dialog("Detalhes do Processo selecionado:", width="large")
+        # @st.dialog("Detalhes do Processo selecionado:", width="large")
         def show_data():
             if '2025' in str(st.session_state.sel_merged_lf['Data Criação']):
                 selected_index_lf_merged = df_geral_2025.loc[df_geral_2025.loc[:,'Index'] == st.session_state.sel_merged_lf['Index'].iloc[0]]
@@ -364,16 +354,14 @@ with st.expander("Registro de Solicitações", expanded=True):
                 )
 
             selected_index_lf_merged.loc[:,'Data Criação'] = selected_index_lf_merged['Data Criação']
-            json_data = selected_index_lf_merged.to_json(orient='records', lines=False)
-            return st.json(json_data)
+            # json_data = selected_index_lf_merged.to_json(orient='records', lines=False)
+            # st.json(json_data)
+            show_dadosProcesso(selected_index_lf_merged)
 
-        if not st.session_state.close_this_damn_json and not st.session_state.sel_merged_lf is None and not st.session_state.sel_merged_lf_clear:
+        if not st.session_state.sel_merged_lf is None:
             show_data()
-            st.session_state.sel_merged_lf = None
-            st.session_state.sel_merged_lf_clear = False
-        else:
-            st.session_state.close_this_damn_json = False
-            st.session_state.sel_merged_lf_clear = False
+            # st.session_state.sel_merged_lf = None
+
 
 
 
@@ -457,8 +445,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             if btn_ocorrencias:
                 get_ocorrencias(treated_line_lf["CPF / CNPJ"], "lf")
                 btn_ocorrencias = False
-
-
 
             col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
             
@@ -618,7 +604,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 st.session_state.disable_btn_save_lf = True
                 # st.session_state.disable_btn_edit_lf = True
                 st.session_state.disable_btn_send_lf = True
-                st.session_state.close_this_damn_json = True # janelinha json
                 st.session_state.disable_file_uploader = True
                 if rerun:       
                     st.session_state.btn_clear_lf = True

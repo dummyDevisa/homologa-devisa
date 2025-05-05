@@ -3,7 +3,7 @@ from io import StringIO, BytesIO
 import pymupdf, pytesseract
 from PIL import Image
 import streamlit as st
-import requests, os, re, gspread, json, hashlib, random, string
+import requests, os, re, gspread, json, hashlib, random, string, time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import smtplib
@@ -535,15 +535,23 @@ def cnae_intersectorial(lista_cnae):
     return list(interseccao)
 
 
-def convert_date(date):
+def convert_date(date_str):
+    """Converts date string (YYYY-MM-DD or DD/MM/YYYY) to DD/MM/YYYY, handles errors."""
+    if not date_str:
+        return "N/A"
     try:
-        # Converter para objeto datetime
-        data_obj = datetime.strptime(date, "%Y-%m-%d")
-        # Formatando para o novo formato
-        data_formatada = data_obj.strftime("%d/%m/%Y")
-        return data_formatada
-    except:
-        return "erro em convert_data"
+        # Try parsing YYYY-MM-DD format (common in APIs)
+        dt_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        return dt_obj.strftime('%d/%m/%Y')
+    except ValueError:
+        try:
+            # Try parsing DD/MM/YYYY format (already correct)
+            # Validate it's a real date this way too
+            dt_obj = datetime.strptime(date_str, '%d/%m/%Y')
+            return date_str # Return original if valid DD/MM/YYYY
+        except ValueError:
+            # If neither format works, return the original string or N/A
+            return date_str # Or return "Data Inválida"
 
 def format_phone_number(number):
     if len(number) == 10:
@@ -558,262 +566,491 @@ def format_phone_number(number):
 
 @st.dialog("Consulta do CNPJ", width="large")
 def show_dadosCnpj(display_data: dict, cnaes_finais: list, socios: list, this_taxas: str):
-    """Exibe os dados do CNPJ formatados a partir de um dicionário padronizado."""
-    st.write(f"Situação cadastral: **{":green" if display_data.get('situacao') == "ATIVA" else ":red"}[{display_data.get('situacao', 'N/A')}, {display_data.get('motivo_situacao', 'N/A')} ({convert_date(display_data.get('data_situacao', ''))})]**")
-    st.write(f"Município: **{":green" if display_data.get('municipio') == "BELEM" else ":red"}[{display_data.get('municipio', 'N/A')}, {display_data.get('uf', 'N/A')}]**")
+    """
+    Exibe os dados do CNPJ formatados a partir de um dicionário padronizado,
+    refletindo o resultado da comparação CNAE/DAM.
+    """
+    if not display_data:
+        st.warning("Não há dados para exibir.")
+        return
 
-    # Lógica MEI (ajustada para dicionário)
+    # Fonte da API (adicionado para informação)
+    api_source = display_data.get('_api_source', 'Desconhecida')
+    st.caption(f"Dados obtidos via: {api_source}")
+
+    # --- Situação Cadastral e Município ---
+    situacao = display_data.get('situacao', 'N/A')
+    situacao_cor = ":green" if situacao.upper() == "ATIVA" else ":red"
+    motivo_situacao = display_data.get('motivo_situacao', '')
+    motivo_str = f", {motivo_situacao}" if motivo_situacao and motivo_situacao != 'SEM MOTIVO' else "" # Evita exibir "SEM MOTIVO"
+    data_situacao_fmt = convert_date(display_data.get('data_situacao', ''))
+    st.write(f"Situação: **{situacao_cor}[{situacao}{motivo_str} ({data_situacao_fmt})]**")
+
+    municipio = display_data.get('municipio', 'N/A')
+    uf = display_data.get('uf', 'N/A')
+    municipio_cor = ":green" if municipio.upper() == "BELEM" else ":blue" # Usar azul como neutro se não for Belém
+    st.write(f"Município: **{municipio_cor}[{municipio} / {uf}]**")
+
+    # --- Situação MEI ---
     is_mei = display_data.get('opcao_mei', False)
-    data_opcao_mei = display_data.get('data_opcao_mei', '')
-    data_exclusao_mei = display_data.get('data_exclusao_mei', '')
+    data_opcao_mei_fmt = convert_date(display_data.get('data_opcao_mei', ''))
+    data_exclusao_mei_fmt = convert_date(display_data.get('data_exclusao_mei', ''))
 
     if is_mei:
-        if this_taxas != '': # Assumindo que 'this_taxas' indica algum problema se não for vazio
-            st.write(f"Situação MEI: :red[**ATIVA desde {convert_date(data_opcao_mei)}**]")
-        else:
-            st.write(f"Situação MEI: :green[ATIVA desde {convert_date(data_opcao_mei)}]")
-    elif data_exclusao_mei:
-        if this_taxas != '':
-             st.write(f"Situação MEI: :green[Removido em {convert_date(data_exclusao_mei)}]")
-        else:
-            st.write(f"Situação MEI: :red[Removido em {convert_date(data_exclusao_mei)}]")
+        # Se MEI ativo, geralmente é bom (verde), a menos que haja problema com CNAE (this_taxas)
+        mei_cor = ":orange" if this_taxas and this_taxas not in ['ok', ''] else ":green"
+        st.write(f"Situação MEI: {mei_cor}[**Optante ativo desde {data_opcao_mei_fmt}**]")
+    elif data_exclusao_mei_fmt != 'N/A':
+        # Se excluído, geralmente não é o desejado (vermelho), mas se CNAEs ok, talvez neutro?
+        mei_cor = ":red" # Manter vermelho para exclusão
+        st.write(f"Situação MEI: {mei_cor}[Excluído do MEI em {data_exclusao_mei_fmt}]")
     else:
          st.write(f"Situação MEI: :grey[Não optante ou informação indisponível]")
 
+    # --- Dados da Empresa ---
+    cod_nj = display_data.get('cod_natureza_juridica', 'N/A')
+    desc_nj = display_data.get('natureza_juridica', 'N/A')
+    st.write(f"Nat. Jurídica: {cod_nj} - {desc_nj}")
 
-    st.write(f"Nat. Jurídica: {display_data.get('cod_natureza_juridica', 'N/A')} - {display_data.get('natureza_juridica', 'N/A')}")
-    st.write(f"Empresa: {display_data.get('razao_social', 'N/A')} {f"({display_data.get('nome_fantasia')})" if display_data.get('nome_fantasia') else ""}")
+    razao_social = display_data.get('razao_social', 'N/A')
+    nome_fantasia = display_data.get('nome_fantasia', '')
+    fantasia_str = f" ({nome_fantasia})" if nome_fantasia else ""
+    st.write(f"Empresa: **{razao_social}**{fantasia_str}")
 
-    # Endereço (ajustado para dicionário)
-    logradouro = f"{display_data.get('tipo_logradouro', '')} {display_data.get('logradouro', '')}".strip()
-    numero = display_data.get('numero', '')
+    # --- Endereço ---
+    tipo_log = display_data.get('tipo_logradouro', '')
+    logradouro = display_data.get('logradouro', '')
+    logradouro_fmt = f"{tipo_log} {logradouro}".strip()
+    numero = display_data.get('numero', 'S/N') # Usar S/N se vazio
     complemento = display_data.get('complemento', '')
     bairro = display_data.get('bairro', '')
     cep = display_data.get('cep', '')
-    municipio_uf = f"{display_data.get('municipio', '')} ({display_data.get('uf', '')})"
+    cep_fmt = f"{cep[:2]}.{cep[2:5]}-{cep[5:]}" if cep and len(cep) == 8 else cep # Formata CEP XXXX-XXX
 
-    endereco_str = f"{logradouro}, {numero}"
+    endereco_parts = [logradouro_fmt, numero]
     if complemento:
-        endereco_str += f", {complemento}"
-    endereco_str += f". {bairro} - {cep}. {municipio_uf}"
-    st.write(f"Endereço: {endereco_str}")
+        endereco_parts.append(complemento)
+    if bairro:
+        endereco_parts.append(bairro)
+    if cep_fmt:
+         endereco_parts.append(f"CEP: {cep_fmt}")
+    # Município/UF já exibido
 
-    # CNAEs
-    if cnaes_finais:
+    st.write(f"Endereço: {', '.join(filter(None, endereco_parts))}.") # Junta partes com vírgula
+
+    # --- CNAEs ---
+    # Formata a lista de CNAEs para exibição
+    if cnaes_finais and isinstance(cnaes_finais, list):
         lista_cnaes_formatada = []
         for cnae in cnaes_finais:
-            if cnae and len(cnae) >= 7:
-                 lista_cnaes_formatada.append(f"{cnae[:4]}-{cnae[4:5]}/{cnae[5:7]}")
-            else:
-                 lista_cnaes_formatada.append(cnae) # Adiciona como está se não tiver 7 dígitos
-        lista_cnaes_str = ", ".join(lista_cnaes_formatada) + "."
+            cnae_str = str(cnae).strip()
+            if cnae_str and len(cnae_str) >= 7:
+                 # Formato XXXX-X/XX
+                 lista_cnaes_formatada.append(f"{cnae_str[:4]}-{cnae_str[4:5]}/{cnae_str[5:7]}")
+            elif cnae_str:
+                 lista_cnaes_formatada.append(cnae_str) # Adiciona como está se inválido ou curto
+        lista_cnaes_str = ", ".join(lista_cnaes_formatada)
     else:
-        lista_cnaes_str = ":red[Não possui ou não encontrado]"
-
+        # Se cnaes_finais for None, [], ou não for lista
+        lista_cnaes_str = None # Indica que não há CNAEs formatados
 
     # Lógica de exibição de CNAEs baseada em 'this_taxas'
     if this_taxas:
         match this_taxas:
-            case 'sem cnae':
-                st.write(f"CNAEs Declarados: :red[**Não encontrei CNAEs válidos no CNPJ**]")
-            case 'cnae ausente':
-                st.write(f"CNAEs Declarados (Fora do Decreto): :red[**{lista_cnaes_str}**]")
             case 'ok':
-                 st.write(f"CNAEs Declarados (Decreto): **:blue[{lista_cnaes_str}] :green[*(ok, passou no filtro)*]**")
-            case _: # Caso padrão se this_taxas tiver outro valor inesperado
-                 st.write(f"CNAEs no CNPJ: :blue[{lista_cnaes_str}]")
+                st.write(f"CNAEs (DAM): :green[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Todos os CNAEs da DAM constam no CNPJ)]")
+            case 'parcial':
+                st.write(f"CNAEs (DAM): :orange[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Estes CNAEs da DAM NÃO constam no CNPJ)]")
+            case 'cnae ausente':
+                st.write(f"CNAEs (DAM): :red[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (NENHUM destes CNAEs da DAM consta no CNPJ)]")
+            case 'sem cnae':
+                 st.write(f"CNAEs (DAM): :red[**CNPJ não possui CNAEs válidos para comparação.**]")
+                 # Opcional: Mostrar os CNAEs da DAM que eram esperados
+                 # if lista_cnaes_str: st.write(f"   (CNAEs esperados da DAM: {lista_cnaes_str})")
+            case _: # Caso padrão/inesperado ou se this_taxas for '' mas não deveria
+                 if lista_cnaes_str:
+                     st.write(f"CNAEs (CNPJ): :blue[{lista_cnaes_str}] (Comparação com DAM não realizada ou status desconhecido)")
+                 else:
+                     st.write("CNAEs (CNPJ): :grey[Não possui ou não encontrado]")
     else:
-         st.write(f"CNAEs no CNPJ: :blue[{lista_cnaes_str}]") # Exibe todos se não houver filtro de taxas
+        # Se this_taxas for '' ou None (sem comparação DAM)
+         if lista_cnaes_str:
+            st.write(f"CNAEs (CNPJ): :blue[{lista_cnaes_str}]")
+         else:
+            st.write("CNAEs (CNPJ): :grey[Não possui ou não encontrado]")
 
-
-    # Sócios
-    if socios:
-        lista_socios_str = "; ".join(filter(None, socios)) + "." # Filtra Nones/vazios
-        st.write(f"Quadro de Sócios: :grey[{lista_socios_str}]")
+    # --- Sócios ---
+    if socios and isinstance(socios, list):
+        # Filtra nomes vazios ou None antes de juntar
+        socios_validos = [s for s in socios if s and isinstance(s, str) and s.strip()]
+        if socios_validos:
+            lista_socios_str = "; ".join(socios_validos)
+            st.write(f"Quadro de Sócios: :grey[{lista_socios_str}]")
+        else:
+             st.write("Quadro de Sócios: :grey[Nomes de sócios não informados]")
     else:
         st.write("Quadro de Sócios: :grey[Não informado ou indisponível]")
 
-
-    # Contato (ajustado para dicionário)
+    # --- Contato ---
     email = display_data.get('email', '')
     tel1 = display_data.get('telefone1', '')
     tel2 = display_data.get('telefone2', '')
     contatos = []
-    if email:
+    if email and isinstance(email, str) and '@' in email: # Validação básica de email
         contatos.append(email)
-    if tel1:
-        contatos.append(format_phone_number(tel1))
-    if tel2 and tel2 != tel1: # Evita duplicidade se APIs retornarem o mesmo tel
-        contatos.append(format_phone_number(tel2))
+    # Formata telefones usando a função helper
+    tel1_fmt = format_phone_number(tel1)
+    if tel1_fmt:
+        contatos.append(tel1_fmt)
+    tel2_fmt = format_phone_number(tel2)
+    # Adiciona tel2 apenas se for diferente de tel1 e válido
+    if tel2_fmt and tel2_fmt != tel1_fmt:
+        contatos.append(tel2_fmt)
 
     if contatos:
-        st.write(f"Contato: {' e '.join(contatos)}")
+        st.write(f"Contato: {', '.join(contatos)}")
     else:
-        st.write(f"Contato: :grey[Sem contato informado]")
+        st.write(f"Contato: :grey[Não informado]")
 
-    # Atualiza o estado para indicar que o diálogo foi fechado
-    st.session_state["dialog_open"] = False
+    # --- Campos Adicionais (Exemplo) ---
+    data_inicio_fmt = convert_date(display_data.get('data_inicio_atividade', ''))
+    if data_inicio_fmt != 'N/A':
+        st.write(f"Início da Atividade: {data_inicio_fmt}")
 
+    porte = display_data.get('porte', '')
+    if porte:
+        st.write(f"Porte: {porte}")
+
+    capital_social = display_data.get('capital_social')
+    if capital_social is not None:
+        try:
+             # Formata como moeda brasileira
+             capital_fmt = f"R$ {float(capital_social):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+             st.write(f"Capital Social: {capital_fmt}")
+        except (ValueError, TypeError):
+             st.write(f"Capital Social: {capital_social}") # Mostra como string se não for número
+
+    # Atualiza o estado para indicar que o diálogo foi fechado (se aplicável)
+    # Mantenha esta linha se ela for necessária para o controle da UI do seu app
+    if "dialog_open" in st.session_state:
+        st.session_state["dialog_open"] = False
+
+
+# Helper function to safely clean CNAE codes
+def _clean_cnae(code):
+    if code is None:
+        return ''
+    # Remove non-digits and convert to string
+    return re.sub(r'\D', '', str(code))
+
+# Helper function to safely format phone numbers
+def _format_phone(ddd, num):
+    ddd_str = str(ddd).strip() if ddd else ''
+    num_str = str(num).strip() if num else ''
+    if ddd_str and num_str:
+        return f"({ddd_str}) {num_str}"
+    elif num_str: # Handle cases where DDD might be embedded or missing
+        return num_str
+    return ''
 
 def process_cnpj_data(api_data: dict, api_source: str, yy: str, lista_dam: str):
-    """Processa dados da API (BrasilAPI ou ReceitaWS) e os padroniza."""
+    """
+    Processa dados da API (BrasilAPI, ReceitaWS, Publica CNPJ.ws, CNPJá)
+    e os padroniza para exibição e processamento posterior.
+    """
+    if not api_data:
+        st.toast(":warning: Nenhum dado de API recebido para processar.")
+        print("Erro: process_cnpj_data chamado sem api_data.")
+        return # Cannot proceed without data
 
-    display_data = {}
+    display_data = {'_api_source': api_source} # Store the source for reference
     socios = []
     cnaes_secundarios_cod = []
     cnae_principal_cod = None
 
-    if api_source == 'brasilapi':
-        # Mapeamento BrasilAPI -> display_data (dicionário padronizado)
-        display_data['situacao'] = api_data.get('descricao_situacao_cadastral')
-        display_data['motivo_situacao'] = api_data.get('descricao_motivo_situacao_cadastral')
-        display_data['data_situacao'] = api_data.get('data_situacao_cadastral')
-        display_data['municipio'] = api_data.get('municipio')
-        display_data['uf'] = api_data.get('uf')
-        display_data['opcao_mei'] = api_data.get('opcao_pelo_mei', False)
-        display_data['data_opcao_mei'] = api_data.get('data_opcao_pelo_mei')
-        display_data['data_exclusao_mei'] = api_data.get('data_exclusao_do_mei')
-        display_data['cod_natureza_juridica'] = api_data.get('codigo_natureza_juridica')
-        display_data['natureza_juridica'] = api_data.get('natureza_juridica')
-        display_data['razao_social'] = api_data.get('razao_social')
-        display_data['nome_fantasia'] = api_data.get('nome_fantasia')
-        display_data['tipo_logradouro'] = api_data.get('descricao_tipo_de_logradouro')
-        display_data['logradouro'] = api_data.get('logradouro')
-        display_data['numero'] = api_data.get('numero')
-        display_data['complemento'] = api_data.get('complemento')
-        display_data['bairro'] = api_data.get('bairro')
-        display_data['cep'] = api_data.get('cep')
-        display_data['email'] = api_data.get('email')
-        # Combina DDD e telefone se existirem
-        ddd1 = api_data.get('ddd_telefone_1', '')
-        tel1 = api_data.get('telefone_1', '')
-        display_data['telefone1'] = f"{ddd1}{tel1}" if ddd1 or tel1 else ''
-        ddd2 = api_data.get('ddd_telefone_2', '')
-        tel2 = api_data.get('telefone_2', '')
-        display_data['telefone2'] = f"{ddd2}{tel2}" if ddd2 or tel2 else ''
+    print(f"--- Processando dados da fonte: {api_source} ---") # Debug
 
-        # Extrai CNAE principal e secundários
-        cnae_principal_cod = str(api_data.get('cnae_fiscal', ''))
-        if "cnaes_secundarios" in api_data and isinstance(api_data["cnaes_secundarios"], list):
-            for cnae in api_data["cnaes_secundarios"]:
-                cnaes_secundarios_cod.append(str(cnae.get("codigo", '')))
+    try:
+        # ============================================
+        # Mapeamento Específico por Fonte de API
+        # ============================================
+        if api_source == 'BrasilAPI':
+            display_data['situacao'] = api_data.get('descricao_situacao_cadastral')
+            display_data['motivo_situacao'] = api_data.get('descricao_motivo_situacao_cadastral')
+            display_data['data_situacao'] = api_data.get('data_situacao_cadastral')
+            display_data['municipio'] = api_data.get('municipio')
+            display_data['uf'] = api_data.get('uf')
+            display_data['opcao_mei'] = api_data.get('opcao_pelo_mei', False)
+            display_data['data_opcao_mei'] = api_data.get('data_opcao_pelo_mei')
+            display_data['data_exclusao_mei'] = api_data.get('data_exclusao_do_mei')
+            display_data['cod_natureza_juridica'] = str(api_data.get('codigo_natureza_juridica', ''))
+            display_data['natureza_juridica'] = api_data.get('natureza_juridica')
+            display_data['razao_social'] = api_data.get('razao_social')
+            display_data['nome_fantasia'] = api_data.get('nome_fantasia')
+            display_data['tipo_logradouro'] = api_data.get('descricao_tipo_de_logradouro')
+            display_data['logradouro'] = api_data.get('logradouro')
+            display_data['numero'] = api_data.get('numero')
+            display_data['complemento'] = api_data.get('complemento')
+            display_data['bairro'] = api_data.get('bairro')
+            display_data['cep'] = _clean_cnae(api_data.get('cep')) # Limpa CEP
+            display_data['email'] = api_data.get('email')
+            # BrasilAPI retorna DDD e telefone juntos em ddd_telefone_1 / ddd_telefone_2
+            display_data['telefone1'] = api_data.get('ddd_telefone_1') # Já vem formatado
+            display_data['telefone2'] = api_data.get('ddd_telefone_2') # Já vem formatado
+            display_data['data_inicio_atividade'] = api_data.get('data_inicio_atividade')
+            display_data['porte'] = api_data.get('porte')
+            display_data['capital_social'] = api_data.get('capital_social')
 
-        # Extrai Sócios
-        if "qsa" in api_data and isinstance(api_data["qsa"], list):
-            for socio in api_data["qsa"]:
-                socios.append(socio.get("nome_socio"))
+            cnae_principal_cod = _clean_cnae(api_data.get('cnae_fiscal'))
+            if "cnaes_secundarios" in api_data and isinstance(api_data["cnaes_secundarios"], list):
+                for cnae in api_data["cnaes_secundarios"]:
+                    cnaes_secundarios_cod.append(_clean_cnae(cnae.get("codigo")))
 
+            if "qsa" in api_data and isinstance(api_data["qsa"], list):
+                for socio in api_data["qsa"]:
+                    socios.append(socio.get("nome_socio"))
 
-    elif api_source == 'receitaws':
-        # Mapeamento ReceitaWS -> display_data (dicionário padronizado)
-        display_data['situacao'] = api_data.get('situacao')
-        display_data['motivo_situacao'] = api_data.get('motivo_situacao') # Pode não existir, .get() lida com isso
-        display_data['data_situacao'] = api_data.get('data_situacao')
-        display_data['municipio'] = api_data.get('municipio')
-        display_data['uf'] = api_data.get('uf')
-        # ReceitaWS tem estrutura aninhada para MEI/Simples
-        is_mei = api_data.get('simei', {}).get('optante', False) if api_data.get('simei') else False
-        display_data['opcao_mei'] = is_mei
-        display_data['data_opcao_mei'] = api_data.get('simei', {}).get('data_opcao') if api_data.get('simei') else None
-        display_data['data_exclusao_mei'] = api_data.get('simei', {}).get('data_exclusao') if api_data.get('simei') else None
-        # Pega código da string natureza_juridica "XXX-X - Texto"
-        nj_str = api_data.get('natureza_juridica', '')
-        display_data['cod_natureza_juridica'] = nj_str.split(' - ')[0] if ' - ' in nj_str else ''
-        display_data['natureza_juridica'] = nj_str.split(' - ')[1] if ' - ' in nj_str else nj_str
-        display_data['razao_social'] = api_data.get('nome') # Chave diferente
-        display_data['nome_fantasia'] = api_data.get('fantasia') # Chave diferente
-        display_data['tipo_logradouro'] = '' # ReceitaWS não fornece separado
-        display_data['logradouro'] = api_data.get('logradouro')
-        display_data['numero'] = api_data.get('numero')
-        display_data['complemento'] = api_data.get('complemento')
-        display_data['bairro'] = api_data.get('bairro')
-        display_data['cep'] = api_data.get('cep')
-        display_data['email'] = api_data.get('email')
-        display_data['telefone1'] = api_data.get('telefone') # ReceitaWS geralmente tem só um campo telefone
-        display_data['telefone2'] = '' # Não tem segundo telefone explícito
+        elif api_source == 'ReceitaWS':
+            display_data['situacao'] = api_data.get('situacao')
+            display_data['motivo_situacao'] = api_data.get('motivo_situacao')
+            display_data['data_situacao'] = api_data.get('data_situacao')
+            display_data['municipio'] = api_data.get('municipio')
+            display_data['uf'] = api_data.get('uf')
+            # MEI/Simples em objetos aninhados
+            mei_info = api_data.get('simei', {}) if api_data.get('simei') else {}
+            display_data['opcao_mei'] = mei_info.get('optante', False)
+            display_data['data_opcao_mei'] = mei_info.get('data_opcao')
+            display_data['data_exclusao_mei'] = mei_info.get('data_exclusao')
+            # Parse natureza jurídica "XXX-X - Texto"
+            nj_str = api_data.get('natureza_juridica', '')
+            display_data['cod_natureza_juridica'] = nj_str.split(' - ')[0] if ' - ' in nj_str else ''
+            display_data['natureza_juridica'] = nj_str.split(' - ')[1] if ' - ' in nj_str else nj_str
+            display_data['razao_social'] = api_data.get('nome') # Chave 'nome'
+            display_data['nome_fantasia'] = api_data.get('fantasia') # Chave 'fantasia'
+            display_data['tipo_logradouro'] = '' # Não fornecido separadamente
+            display_data['logradouro'] = api_data.get('logradouro')
+            display_data['numero'] = api_data.get('numero')
+            display_data['complemento'] = api_data.get('complemento')
+            display_data['bairro'] = api_data.get('bairro')
+            display_data['cep'] = _clean_cnae(api_data.get('cep')) # Limpa CEP
+            display_data['email'] = api_data.get('email')
+            display_data['telefone1'] = api_data.get('telefone') # Campo único 'telefone'
+            display_data['telefone2'] = ''
+            display_data['data_inicio_atividade'] = api_data.get('abertura') # Chave 'abertura'
+            display_data['porte'] = api_data.get('porte')
+            display_data['capital_social'] = api_data.get('capital_social')
 
-        # Extrai CNAE principal e secundários (estrutura diferente)
-        if "atividade_principal" in api_data and isinstance(api_data["atividade_principal"], list) and len(api_data["atividade_principal"]) > 0:
-            cnae_principal_cod = str(api_data["atividade_principal"][0].get("code", '')).replace('.', '').replace('-', '') # Limpa o código
-        if "atividades_secundarias" in api_data and isinstance(api_data["atividades_secundarias"], list):
-            for cnae in api_data["atividades_secundarias"]:
-                 cnaes_secundarios_cod.append(str(cnae.get("code", '')).replace('.', '').replace('-', '')) # Limpa o código
+            if "atividade_principal" in api_data and isinstance(api_data["atividade_principal"], list) and api_data["atividade_principal"]:
+                cnae_principal_cod = _clean_cnae(api_data["atividade_principal"][0].get("code"))
+            if "atividades_secundarias" in api_data and isinstance(api_data["atividades_secundarias"], list):
+                for cnae in api_data["atividades_secundarias"]:
+                     cnaes_secundarios_cod.append(_clean_cnae(cnae.get("code")))
 
-        # Extrai Sócios (estrutura diferente)
-        if "qsa" in api_data and isinstance(api_data["qsa"], list):
-            for socio in api_data["qsa"]:
-                # Combina nome e qualificação se quiser: f"{socio.get('nome')} ({socio.get('qual')})"
-                socios.append(socio.get("nome"))
+            if "qsa" in api_data and isinstance(api_data["qsa"], list):
+                for socio in api_data["qsa"]:
+                    socios.append(socio.get("nome"))
 
-    # --- Lógica Comum após padronização ---
-
-    # Junta todos os CNAEs (apenas códigos numéricos)
-    lista_cnaes_numericos = []
-    if cnae_principal_cod:
-        lista_cnaes_numericos.append(cnae_principal_cod)
-    lista_cnaes_numericos.extend(cnaes_secundarios_cod)
-
-    # Aplica o filtro intersetorial (placeholder)
-    cnaes_decreto = cnae_intersectorial(lista_cnaes_numericos)
-    print(f"CNAEs após intersectorial: {cnaes_decreto}") # Debug
-
-    # Lógica de comparação com lista_dam
-    this_taxas = ''
-    cnaes_finais = cnaes_decreto # Por padrão, exibe os CNAEs do decreto/CNPJ
-
-    if lista_dam and len(lista_dam) > 5: # Verifica se lista_dam é válida
-        lista_taxas = [cnae.strip().replace("-", "").replace("/", "").replace(".", "") for cnae in lista_dam.split(",")]
-        lista_taxas = [c for c in lista_taxas if c] # Remove vazios
-
-        print(f"Lista DAM (limpa): {lista_taxas}") # Debug
-        print(f"CNAEs Decreto/CNPJ: {cnaes_decreto}") # Debug
-
-
-        intersecao = [cnae for cnae in lista_taxas if cnae in cnaes_decreto]
-        nao_contidos = [cnae for cnae in lista_taxas if cnae not in cnaes_decreto]
-
-        print(f"Interseção: {intersecao}") # Debug
-        print(f"Não contidos: {nao_contidos}") # Debug
-
-
-        if not cnaes_decreto: # Se o CNPJ não tiver CNAEs válidos
-             this_taxas = 'sem cnae'
-             cnaes_finais = [] # Nenhum CNAE a exibir
-        elif not intersecao and nao_contidos: # Nenhum CNAE da lista_dam está no CNPJ
-            this_taxas = 'cnae ausente'
-            cnaes_finais = nao_contidos # Exibe os CNAEs da lista_dam que não foram encontrados
-        elif nao_contidos: # Alguns da lista_dam estão, outros não
-            this_taxas = 'cnae ausente' # Ou poderia ser um status diferente?
-            cnaes_finais = nao_contidos # Exibe os que faltaram
-            # Alternativa: exibir os que deram match? cnaes_finais = intersecao
-        elif intersecao and not nao_contidos: # Todos da lista_dam estão no CNPJ
-            this_taxas = 'ok'
-            cnaes_finais = intersecao # Exibe os CNAEs que deram match
-        else: # Caso não previsto ou lista_dam vazia após limpeza
-             cnaes_finais = cnaes_decreto # Volta ao padrão
-             this_taxas = ''
-
-    else: # Se não houver lista_dam para comparar
-        cnaes_finais = cnaes_decreto
-        this_taxas = ''
-
-    print(f"Final - this_taxas: {this_taxas}, cnaes_finais: {cnaes_finais}") # Debug
-
-    # Chama a função de exibição com os dados padronizados
-    show_dadosCnpj(display_data, cnaes_finais, socios, this_taxas)
-
-    # Lógica para preencher campos de digitação (ajustada para dicionário)
-    if display_data:
-        if yy == 'cnpj_digitacao_lf':
-            # Verifica condições (Ex: ATIVA e CEP de Belém)
-            if display_data.get('situacao') == "ATIVA" and display_data.get('cep', '').startswith("66"):
-                st.session_state.fi_logradouro = f"{display_data.get('tipo_logradouro', '')} {display_data.get('logradouro', '')}".strip()
-                st.session_state.fi_numero = display_data.get('numero', '')
-                st.session_state.fi_razao_social = display_data.get('razao_social', '')
-                st.session_state.fi_bairro = display_data.get('bairro', '')
-                st.session_state.fi_cep = display_data.get('cep', '')
-                st.session_state.fi_complemento = display_data.get('complemento', '')
+        elif api_source == 'Publica CNPJ.ws':
+            estab = api_data.get('estabelecimento', {}) # Dados principais estão no estabelecimento
+            if not estab:
+                 print(f"WARN: Estrutura inesperada da {api_source}, 'estabelecimento' não encontrado.")
+                 # Tentar pegar dados do nível raiz se possível
+                 display_data['razao_social'] = api_data.get('razao_social')
+                 nj = api_data.get('natureza_juridica', {})
+                 display_data['cod_natureza_juridica'] = str(nj.get('id', ''))
+                 display_data['natureza_juridica'] = nj.get('descricao')
             else:
+                display_data['situacao'] = estab.get('situacao_cadastral')
+                display_data['motivo_situacao'] = estab.get('motivo_situacao_cadastral', {}).get('descricao') if estab.get('motivo_situacao_cadastral') else '' # Motivo é objeto
+                display_data['data_situacao'] = estab.get('data_situacao_cadastral')
+                display_data['municipio'] = estab.get('cidade', {}).get('nome')
+                display_data['uf'] = estab.get('estado', {}).get('sigla')
+                simples_info = api_data.get('simples', {}) # Info de simples/mei está no nível raiz
+                display_data['opcao_mei'] = simples_info.get('mei') == 'Sim'
+                display_data['data_opcao_mei'] = simples_info.get('data_opcao_mei')
+                display_data['data_exclusao_mei'] = simples_info.get('data_exclusao_mei')
+                nj = api_data.get('natureza_juridica', {}) # Nível raiz
+                display_data['cod_natureza_juridica'] = str(nj.get('id', ''))
+                display_data['natureza_juridica'] = nj.get('descricao')
+                display_data['razao_social'] = api_data.get('razao_social') # Nível raiz
+                display_data['nome_fantasia'] = estab.get('nome_fantasia')
+                display_data['tipo_logradouro'] = estab.get('tipo_logradouro')
+                display_data['logradouro'] = estab.get('logradouro')
+                display_data['numero'] = estab.get('numero')
+                display_data['complemento'] = estab.get('complemento')
+                display_data['bairro'] = estab.get('bairro')
+                display_data['cep'] = _clean_cnae(estab.get('cep')) # Limpa CEP
+                display_data['email'] = estab.get('email')
+                display_data['telefone1'] = _format_phone(estab.get('ddd1'), estab.get('telefone1'))
+                display_data['telefone2'] = _format_phone(estab.get('ddd2'), estab.get('telefone2'))
+                display_data['data_inicio_atividade'] = estab.get('data_inicio_atividade')
+                display_data['porte'] = api_data.get('porte', {}).get('descricao') # Nível raiz
+                display_data['capital_social'] = api_data.get('capital_social') # Nível raiz
+
+                if "atividade_principal" in estab and estab["atividade_principal"]:
+                    cnae_principal_cod = _clean_cnae(estab["atividade_principal"].get("id"))
+                if "atividades_secundarias" in estab and isinstance(estab["atividades_secundarias"], list):
+                    for cnae in estab["atividades_secundarias"]:
+                        cnaes_secundarios_cod.append(_clean_cnae(cnae.get("id")))
+
+            # Sócios estão no nível raiz
+            if "socios" in api_data and isinstance(api_data["socios"], list):
+                for socio in api_data["socios"]:
+                    socios.append(socio.get("nome"))
+
+        elif api_source == 'CNPJá': # Nome da fonte 'CNPJá' (verifique se é este no get_cnpj)
+            company_info = api_data.get('company', {})
+            address_info = api_data.get('address', {})
+
+            display_data['situacao'] = api_data.get('status', {}).get('text')
+            display_data['motivo_situacao'] = None # Não parece ter motivo explícito
+            display_data['data_situacao'] = api_data.get('statusDate')
+            display_data['municipio'] = address_info.get('city')
+            display_data['uf'] = address_info.get('state')
+            mei_info = company_info.get('simei', {})
+            display_data['opcao_mei'] = mei_info.get('optant', False)
+            display_data['data_opcao_mei'] = mei_info.get('since') # Usa 'since'
+            display_data['data_exclusao_mei'] = None # Não explícito para exclusão MEI
+            nj = company_info.get('nature', {})
+            display_data['cod_natureza_juridica'] = str(nj.get('id', ''))
+            display_data['natureza_juridica'] = nj.get('text')
+            display_data['razao_social'] = company_info.get('name')
+            display_data['nome_fantasia'] = api_data.get('alias') # Nível raiz
+            # Tentar extrair tipo do logradouro (pode ser difícil/impreciso)
+            street_full = address_info.get('street', '')
+            tipo_logr, logr = street_full.split(' ', 1) if ' ' in street_full else ('', street_full)
+            # Heurística simples (pode precisar de melhorias)
+            if tipo_logr.upper() in ['RUA', 'AV', 'AVENIDA', 'TRAVESSA', 'ALAMEDA', 'ESTRADA', 'PRACA', 'RODOVIA']:
+                 display_data['tipo_logradouro'] = tipo_logr
+                 display_data['logradouro'] = logr
+            else:
+                 display_data['tipo_logradouro'] = ''
+                 display_data['logradouro'] = street_full
+
+            display_data['numero'] = address_info.get('number')
+            display_data['complemento'] = address_info.get('details') # 'details' como complemento
+            display_data['bairro'] = address_info.get('district')
+            display_data['cep'] = _clean_cnae(address_info.get('zip')) # Limpa CEP
+            emails_list = api_data.get('emails', [])
+            display_data['email'] = emails_list[0].get('address') if emails_list else None
+            phones_list = api_data.get('phones', [])
+            phone1_info = phones_list[0] if phones_list else {}
+            display_data['telefone1'] = _format_phone(phone1_info.get('area'), phone1_info.get('number'))
+            phone2_info = phones_list[1] if len(phones_list) > 1 else {}
+            display_data['telefone2'] = _format_phone(phone2_info.get('area'), phone2_info.get('number'))
+            display_data['data_inicio_atividade'] = api_data.get('founded') # Chave 'founded'
+            display_data['porte'] = company_info.get('size', {}).get('text')
+            display_data['capital_social'] = company_info.get('equity')
+
+            if "mainActivity" in api_data and api_data["mainActivity"]:
+                 cnae_principal_cod = _clean_cnae(api_data["mainActivity"].get("id"))
+            if "sideActivities" in api_data and isinstance(api_data["sideActivities"], list):
+                for cnae in api_data["sideActivities"]:
+                    cnaes_secundarios_cod.append(_clean_cnae(cnae.get("id")))
+
+            if "members" in company_info and isinstance(company_info["members"], list):
+                 for member in company_info["members"]:
+                     person_info = member.get('person', {})
+                     socios.append(person_info.get("name"))
+
+        else:
+            st.toast(f":warning: Fonte de API desconhecida encontrada: '{api_source}'")
+            print(f"Erro: Fonte de API não mapeada: {api_source}")
+            # Tentar um mapeamento genérico ou apenas retornar?
+            # Por segurança, não faremos nada e a lógica abaixo terá dados vazios.
+            pass
+
+        # ============================================
+        # Lógica Comum após padronização
+        # ============================================
+
+        # Junta todos os CNAEs (apenas códigos numéricos limpos)
+        lista_cnaes_numericos = []
+        if cnae_principal_cod:
+            lista_cnaes_numericos.append(cnae_principal_cod)
+        lista_cnaes_numericos.extend(cnaes_secundarios_cod)
+        lista_cnaes_numericos = [c for c in lista_cnaes_numericos if c] # Remove vazios/nulos
+
+        # Aplica o filtro intersetorial (certifique-se que a função exista)
+        try:
+             cnaes_decreto = cnae_intersectorial(lista_cnaes_numericos)
+            #  print(f"DANIEL: lista_cnaes_numericos: {lista_cnaes_numericos}")
+            #  print(f"DANIEL: cnaes_decreto: {cnaes_decreto}")
+        except NameError:
+             print("WARN: Função 'cnae_intersectorial' não definida. Usando CNAEs originais.")
+             cnaes_decreto = lista_cnaes_numericos
+
+
+        # print(f"DEBUG: CNAEs do CNPJ (limpos): {lista_cnaes_numericos}")
+        # print(f"DEBUG: CNAEs após intersectorial: {cnaes_decreto}") # Debug
+
+        # Lógica de comparação com lista_dam
+        this_taxas = ''
+        cnaes_finais = cnaes_decreto # Por padrão, exibe os CNAEs do decreto/CNPJ
+
+        if lista_dam and isinstance(lista_dam, str) and len(lista_dam.strip()) > 0:
+            lista_taxas = [_clean_cnae(cnae) for cnae in lista_dam.split(",")]
+            lista_taxas = [c for c in lista_taxas if c] # Remove vazios após limpeza
+
+            # print(f"DEBUG: Lista DAM (limpa): {lista_taxas}") # Debug
+
+            if not lista_taxas:
+                print("DEBUG: Lista DAM vazia ou inválida após limpeza.")
+                this_taxas = '' # Nenhuma comparação a fazer
+                cnaes_finais = cnaes_decreto
+            elif not cnaes_decreto: # Se o CNPJ não tiver CNAEs válidos
+                 this_taxas = 'sem cnae'
+                 cnaes_finais = lista_taxas # Mostra os que eram esperados
+            else:
+                intersecao = [cnae for cnae in lista_taxas if cnae in cnaes_decreto]
+                nao_contidos = [cnae for cnae in lista_taxas if cnae not in cnaes_decreto]
+
+                # print(f"DEBUG: Interseção: {intersecao}") # Debug
+                # print(f"DEBUG: Não contidos (DAM \\ CNPJ): {nao_contidos}") # Debug
+
+                if not intersecao: # Nenhum CNAE da lista_dam está no CNPJ
+                    this_taxas = 'cnae ausente'
+                    cnaes_finais = nao_contidos # Exibe os CNAEs da lista_dam que não foram encontrados
+                elif nao_contidos: # Alguns da lista_dam estão, outros não
+                    this_taxas = 'parcial' # Ou 'divergente', 'incompleto' ?
+                    cnaes_finais = nao_contidos # Exibe os que faltaram
+                    # Ou exibe os que deram match? cnaes_finais = intersecao
+                    # Ou exibe ambos? cnaes_finais = {'match': intersecao, 'faltantes': nao_contidos} -> Ajustar show_dadosCnpj
+                else: # Todos da lista_dam estão no CNPJ
+                    this_taxas = 'ok'
+                    cnaes_finais = intersecao # Exibe os CNAEs que deram match
+        else: # Se não houver lista_dam para comparar
+            cnaes_finais = cnaes_decreto
+            this_taxas = '' # Ou talvez 'nao_comparado'?
+
+        # print(f"DEBUG: Final - this_taxas: {this_taxas}, cnaes_finais: {cnaes_finais}") # Debug
+
+        # Chama a função de exibição com os dados padronizados
+        try:
+            # Certifique-se que show_dadosCnpj exista e aceite estes parâmetros
+            show_dadosCnpj(display_data, cnaes_finais, socios, this_taxas)
+        except NameError:
+            print("ERRO: Função 'show_dadosCnpj' não definida. Não é possível exibir os dados.")
+            st.error("Erro interno: Função de exibição não encontrada.")
+
+
+        # Lógica para preencher campos de digitação (ajustada para dicionário)
+        if display_data and yy == 'cnpj_digitacao_lf':
+             # Verifica condições (Ex: ATIVA e CEP de Belém '66')
+             situacao_ok = display_data.get('situacao', '').upper() == "ATIVA"
+             # Garante que CEP seja string antes de startswith
+             cep_str = str(display_data.get('cep', ''))
+             cep_ok = cep_str.startswith("66")
+
+             if situacao_ok and cep_ok:
+                 st.session_state.fi_logradouro = f"{display_data.get('tipo_logradouro', '')} {display_data.get('logradouro', '')}".strip()
+                 st.session_state.fi_numero = display_data.get('numero', '')
+                 st.session_state.fi_razao_social = display_data.get('razao_social', '')
+                 st.session_state.fi_bairro = display_data.get('bairro', '')
+                 st.session_state.fi_cep = display_data.get('cep', '')
+                 st.session_state.fi_complemento = display_data.get('complemento', '')
+                 print("DEBUG: Campos do formulário preenchidos.")
+             else:
                  # Limpa os campos se não atender aos critérios
                  st.session_state.fi_logradouro = ""
                  st.session_state.fi_razao_social = ""
@@ -821,132 +1058,254 @@ def process_cnpj_data(api_data: dict, api_source: str, yy: str, lista_dam: str):
                  st.session_state.fi_numero = ""
                  st.session_state.fi_bairro = ""
                  st.session_state.fi_cep = ""
+                 print(f"DEBUG: Campos do formulário NÃO preenchidos (Situação: {situacao_ok}, CEP: {cep_ok})")
+
+
+    except Exception as e:
+        st.error(f"Erro inesperado ao processar dados da API {api_source}: {e}")
+        print(f"ERRO CRÍTICO em process_cnpj_data ({api_source}): {e}")
+        import traceback
+        traceback.print_exc() # Log completo do erro para debug
+
 
 
 def get_cnpj(cnpj: str, yy: str, lista_dam: str):
-    """Busca dados do CNPJ, tentando BrasilAPI e depois ReceitaWS como fallback."""
-    t_cnpj = re.sub(r"\D", "", cnpj)
-    if not t_cnpj:
-        st.toast(":orange[CNPJ inválido ou vazio.]")
+    """
+    Busca dados do CNPJ em múltiplos endpoints e processa o primeiro resultado bem-sucedido.
+
+    Args:
+        cnpj (str): O número do CNPJ (pode conter máscara).
+        yy (str): Identificador do contexto/formulário (ex: 'cnpj_digitacao_lf').
+        lista_dam (str): Parâmetro adicional (uso não especificado no exemplo).
+
+    Returns:
+        bool: True se a consulta e o processamento foram bem-sucedidos, False caso contrário.
+    """
+    # 1. Validar e Limpar CNPJ
+    try:
+        t_cnpj = re.sub(r"\D", "", cnpj)
+        if not t_cnpj or len(t_cnpj) != 14:
+            st.toast(f":orange[CNPJ inválido ou vazio: {cnpj}]")
+            print(f"CNPJ inválido fornecido: {cnpj} -> {t_cnpj}")
+            return False
+    except Exception as e:
+        st.toast(f":red[Erro ao processar CNPJ: {e}]")
+        print(f"Erro ao limpar CNPJ '{cnpj}': {e}")
         return False
 
-    # Limpa campos do formulário antes da consulta (se aplicável)
+    # 2. Limpar campos do formulário (se aplicável)
     if yy == 'cnpj_digitacao_lf':
+        # Limpa apenas se o contexto for o correto
         st.session_state.fi_logradouro = ""
         st.session_state.fi_razao_social = ""
         st.session_state.fi_complemento = ""
         st.session_state.fi_numero = ""
         st.session_state.fi_bairro = ""
         st.session_state.fi_cep = ""
+        # Adicione outros campos que precisam ser limpos
 
+    # 3. Definir Endpoints e Configurações
+    endpoints_config = [
+        {"url": f"https://receitaws.com.br/v1/cnpj/{t_cnpj}", "name": "ReceitaWS", "timeout": 5},
+        {"url": f"https://publica.cnpj.ws/cnpj/{t_cnpj}", "name": "Publica CNPJ.ws", "timeout": 5},   
+        {"url": f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}", "name": "BrasilAPI", "timeout": 5},
+        {"url": f"https://open.cnpja.com/office/{t_cnpj}", "name": "CNPJá", "timeout": 5}, # Geralmente requer autenticação
+    ]
+    headers = {'User-Agent': 'streamlitapp/1.0'} # Boa prática
+
+    # 4. Iterar e Tentar Consultar
     api_data = None
     api_source = None
-    error_msg = None
+    last_error_message = "Nenhuma fonte respondeu com sucesso." # Default error message
 
-    # --- Tentativa 1: BrasilAPI ---
-    try:
-        url_brasilapi = f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}"
-        headers = {'User-Agent': 'MeuAppStreamlit/1.0'} # Boa prática adicionar User-Agent
-        response_brasilapi = requests.get(url_brasilapi, timeout=10, headers=headers) # Timeout de 10s
+    for config in endpoints_config:
+        url = config["url"]
+        name = config["name"]
+        timeout = config["timeout"]
+        print(f"Tentando API: {name} - {url}") # Log para debug
 
-        if response_brasilapi.status_code == 200:
-            api_data = response_brasilapi.json()
-            api_source = 'brasilapi'
-            st.toast("✅ Consulta via BrasilAPI bem-sucedida.")
-        else:
-            error_msg = f"⛔ BrasilAPI falhou: {response_brasilapi.status_code}. Tentando ReceitaWS..."
-            st.toast(error_msg)
-
-    except requests.exceptions.RequestException as e:
-        error_msg = f"⛔ Erro ao conectar à BrasilAPI: {e}. Tentando ReceitaWS..."
-        st.toast(error_msg)
-        print(f"Erro na BrasilAPI: {e}")
-
-
-    # --- Tentativa 2: ReceitaWS (se a primeira falhou) ---
-    if not api_data:
         try:
-            url_receitaws = f"https://receitaws.com.br/v1/cnpj/{t_cnpj}"
-            # ReceitaWS pode ter limites mais estritos, atenção ao User-Agent e frequência
-            headers_receita = {'User-Agent': 'MeuAppStreamlit/1.0'}
-            # A API gratuita pode ter limites de requisição por minuto.
-            # A versão paga requer autenticação (Authorization Bearer Token)
-            # headers_receita = {'Authorization': f'Bearer SEU_TOKEN_RECEITAWS'}
-            response_receitaws = requests.get(url_receitaws, timeout=15, headers=headers_receita) # Timeout maior
+            response = requests.get(url, headers=headers, timeout=timeout)
 
-            if response_receitaws.status_code == 200:
-                # Verifica se a resposta da ReceitaWS não é de erro interno dela
-                receita_data = response_receitaws.json()
-                if receita_data.get("status") != "ERROR":
-                     api_data = receita_data
-                     api_source = 'receitaws'
-                     st.toast("✅ Consulta via ReceitaWS bem-sucedida.")
-                else:
-                     # A API retornou 200, mas com uma mensagem de erro dela
-                     error_msg = f"ReceitaWS retornou erro: {receita_data.get('message', 'Erro desconhecido')}"
-                     st.toast(f":red[{error_msg}]")
-                     print(error_msg)
+            # --- Verificação da Resposta ---
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # Verificar se a resposta não é uma mensagem de erro comum da API
+                    # Exemplo específico para ReceitaWS que retorna 200 com status ERROR
+                    if name == "ReceitaWS" and isinstance(data, dict) and data.get("status") == "ERROR":
+                         last_error_message = f"{name} retornou erro interno: {data.get('message', 'Detalhe não informado')}"
+                         print(last_error_message)
+                         continue # Tenta o próximo
 
-            # Tratar código 429 (Too Many Requests) especificamente se ocorrer com frequência
-            elif response_receitaws.status_code == 429:
-                 error_msg = "ReceitaWS falhou: Limite de requisições atingido (429)."
-                 st.toast(f":red[{error_msg}]")
-                 print(error_msg)
-            elif response_receitaws.status_code == 404:
-                 error_msg = "ReceitaWS falhou: CNPJ não encontrado (404)."
-                 st.toast(f":orange[{error_msg}]")
-                 print(error_msg)
+                    # Exemplo genérico para outras APIs que possam retornar 200 com { "message": "..." }
+                    if isinstance(data, dict) and data.get("message") and ("inválido" in data["message"].lower() or "não encontrado" in data["message"].lower()):
+                         last_error_message = f"{name} reportou: {data['message']}"
+                         print(last_error_message)
+                         continue # Tenta o próximo
+
+                    # --- Sucesso ---
+                    api_data = data
+                    api_source = name # Usar o nome legível como fonte
+                    st.toast(f"✅ Consulta via {name} bem-sucedida.")
+                    break # Sai do loop na primeira resposta bem-sucedida
+
+                except requests.exceptions.JSONDecodeError:
+                    last_error_message = f"Resposta inválida (não JSON) de {name}"
+                    print(f"Erro: {last_error_message} | Status: {response.status_code} | URL: {url}")
+                    continue # Tenta o próximo
+
+            # --- Tratamento de Status Codes de Erro ---
+            elif response.status_code == 404:
+                 last_error_message = f"{name} falhou: CNPJ não encontrado (404)."
+                 print(last_error_message)
+                 # Não necessariamente um erro grave, apenas não achou lá. Continua.
+            elif response.status_code == 429:
+                 last_error_message = f"{name} falhou: Limite de requisições (429)."
+                 print(f"{last_error_message} Aguardando um pouco...")
+                 time.sleep(0.5) # Pequena pausa antes de tentar o próximo
             else:
-                 error_msg = f"ReceitaWS falhou com status: {response_receitaws.status_code}."
-                 st.toast(f":red[{error_msg}]")
-                 print(error_msg)
+                 last_error_message = f"{name} falhou com status: {response.status_code}."
+                 print(last_error_message)
+                 # Considerar outros status codes (e.g., 401, 403, 5xx) se necessário
 
-
+        # --- Tratamento de Exceções de Rede ---
+        except requests.exceptions.Timeout:
+            last_error_message = f"Timeout ({timeout}s) ao conectar com {name}"
+            print(f"Erro: {last_error_message} | URL: {url}")
         except requests.exceptions.RequestException as e:
-            error_msg = f"Erro ao conectar à ReceitaWS: {e}"
-            st.toast(f":red[{error_msg}]")
-            print(f"Erro na ReceitaWS: {e}")
+            last_error_message = f"Erro de conexão com {name}: {e}"
+            print(f"Erro: {last_error_message} | URL: {url}")
+        except Exception as e:
+            # Captura qualquer outro erro inesperado durante a tentativa desta API
+            last_error_message = f"Erro inesperado ao consultar {name}: {e}"
+            print(f"Erro inesperado: {last_error_message} | URL: {url}")
 
+        # Continua para o próximo endpoint se houve falha ou erro nesta iteração
 
-    # --- Processamento Final ---
+    # 5. Processamento Final
     if api_data and api_source:
         try:
+            # Chama a função para processar/exibir os dados encontrados
             process_cnpj_data(api_data, api_source, yy, lista_dam)
-            return True # Indica sucesso
+            return True # Indica sucesso geral
         except Exception as e:
-            # Captura erro durante o processamento/exibição
-            st.toast(f":red[Erro ao processar dados do CNPJ: {e}]")
-            print(f"Erro em process_cnpj_data ou show_dadosCnpj: {e}")
-            # Verifica se o erro é específico do dialog já aberto
+            st.toast(f":red[Erro ao processar dados da {api_source}: {e}]")
+            print(f"Erro em process_cnpj_data: {e}")
+            # Tratar erro específico do Streamlit se necessário
             error_str = str(e)
             if 'Only one dialog is allowed' in error_str:
-                pass # Ignora esse erro específico
-            return False
+                pass # Ignora erro comum do toast
+            return False # Falha no processamento
     else:
-        # Se ambas as APIs falharam ou retornaram erro
-        st.toast(":red[Não foi possível consultar o CNPJ em nenhuma das fontes.]")
-        return False
-
+        # Nenhuma API retornou sucesso
+        st.toast(f":red[Consulta falhou. Último erro: {last_error_message}]")
+        print(f"Falha final ao consultar CNPJ {t_cnpj}. Último erro: {last_error_message}")
+        return False # Indica falha geral
 
 def get_cnpj_raw(cnpj):
+    """
+    Consulta um CNPJ em múltiplos endpoints e retorna o JSON do primeiro sucesso.
+
+    Args:
+        cnpj (str): O número do CNPJ (pode conter máscara).
+
+    Returns:
+        dict or bool: Retorna um dicionário com os dados do CNPJ se encontrado,
+                      ou False se nenhum endpoint responder com sucesso.
+    """
+    # 1. Limpa o CNPJ, removendo caracteres não numéricos
     try:
         t_cnpj = re.sub(r"\D", "", cnpj)
-        url = f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            dados = response.json()  
-            return dados
-        else:
-            st.toast(f"Houve um erro na consulta: {response.status_code}.")
-            return False
+        if not t_cnpj or len(t_cnpj) != 14:
+             st.toast(f":orange[CNPJ inválido: {cnpj}]")
+             print(f"CNPJ inválido fornecido: {cnpj} -> {t_cnpj}")
+             return False
     except Exception as e:
-        error = str(e)
-        if 'Only one dialog is allowed' in error:
-            pass
-        else:
-            st.toast(f":red[Erro na consulta do CNPJ: {e}]")
-        print(f"Erro em get_cnpj: {e}")
+        st.toast(f":red[Erro ao processar CNPJ: {e}]")
+        print(f"Erro ao limpar CNPJ '{cnpj}': {e}")
         return False
+
+    # 2. Define a lista de endpoints a serem tentados
+    endpoints = [
+        f"https://publica.cnpj.ws/cnpj/{t_cnpj}", # Movido para cima, costuma ser rápido
+        f"https://receitaws.com.br/v1/cnpj/{t_cnpj}", # Pode ter limites/custo
+        f"https://open.cnpja.com/office/{t_cnpj}", # Frequentemente requer chave/autenticação
+        f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}",
+    ]
+
+    # 3. Itera sobre os endpoints
+    last_error_message = "Nenhuma fonte respondeu." # Default error
+
+    for url in endpoints:
+        print(f"Tentando endpoint: {url}") # Log para debug
+        try:
+            # Adiciona um timeout para evitar que a requisição fique presa indefinidamente
+            response = requests.get(url, timeout=5) # Timeout de 10 segundos
+
+            # 4. Verifica se a resposta foi bem-sucedida (status code 200)
+            if response.status_code == 200:
+                try:
+                    dados = response.json()
+                    print(f"Sucesso! Dados encontrados em {url.split('/')[2]}")
+                    # Verifica se a resposta não é uma mensagem de erro comum da API
+                    if isinstance(dados, dict) and dados.get("message") and "CNPJ inválido" in dados["message"]:
+                         last_error_message = f"API {url.split('/')[2]} reportou CNPJ inválido."
+                         print(last_error_message)
+                         continue # Tenta o próximo endpoint
+                    elif isinstance(dados, dict) and dados.get("status") == "ERROR":
+                         last_error_message = f"API {url.split('/')[2]} reportou erro: {dados.get('message', 'Erro desconhecido')}"
+                         print(last_error_message)
+                         continue # Tenta o próximo endpoint
+
+                    return dados  # Retorna os dados JSON imediatamente
+                except requests.exceptions.JSONDecodeError:
+                    last_error_message = f"Resposta inválida (não JSON) de {url.split('/')[2]}"
+                    print(f"Erro: {last_error_message} | Status: {response.status_code}")
+                    # Continua para o próximo endpoint
+                    continue
+
+            # Se não for 200, registra o erro e continua
+            else:
+                last_error_message = f"Endpoint {url.split('/')[2]} respondeu com status {response.status_code}"
+                print(f"Falha: {last_error_message}")
+                # Adiciona uma pequena pausa se for erro de rate limit (429)
+                if response.status_code == 429:
+                    print("Rate limit atingido, aguardando antes de tentar o próximo...")
+                    time.sleep(1) # Espera 1 segundo
+
+        # 5. Captura erros de conexão, timeout, etc.
+        except requests.exceptions.Timeout:
+            last_error_message = f"Timeout ao tentar conectar com {url.split('/')[2]}"
+            print(f"Erro: {last_error_message}")
+            # Continua para o próximo endpoint
+            continue
+        except requests.exceptions.RequestException as e:
+            last_error_message = f"Erro de conexão com {url.split('/')[2]}: {e}"
+            print(f"Erro: {last_error_message}")
+            # Continua para o próximo endpoint
+            continue
+        except Exception as e:
+            # Captura qualquer outro erro inesperado
+            last_error_message = f"Erro inesperado ao consultar {url.split('/')[2]}: {e}"
+            print(f"Erro inesperado: {last_error_message}")
+            # Continua para o próximo endpoint
+            continue
+
+    # 6. Se o loop terminar sem sucesso, nenhum endpoint funcionou
+    print(f"Todas as tentativas falharam para o CNPJ {t_cnpj}.")
+    try:
+        st.toast(f":red[Não foi possível consultar o CNPJ. Último erro: {last_error_message}]")
+    except Exception as e_toast:
+        error_str = str(e_toast)
+        if 'Only one dialog is allowed' in error_str:
+            pass  # Ignora erro comum do streamlit se já houver um toast ativo
+        else:
+            # Loga outros erros do toast, mas não impede o retorno
+            print(f":red[Erro ao exibir toast final: {e_toast}]")
+
+    return False # Retorna False indicando falha geral
+
 
 def fill_form_lf(n_proc, ano):     
     result = None
@@ -1110,15 +1469,13 @@ def pesquisa_processo_digitacao(n_proc, ano_proc):
             st.toast("Implemente os outros anos, major...")
 
 
-
-@st.dialog("Dados do Processo", width="large")
+@st.dialog("Detalhes do Processo", width="large")
 def show_dadosProcesso(df):
     df_conv = df.to_json(orient="records", indent=2)
-    st.json(df_conv)
+    return st.json(df_conv)
 
 
-
-@st.dialog("Ocorrências", width="large", )
+@st.dialog("Ocorrências", width="large")
 def get_ocorrencias(pessoa: str, type: str):
     sheet = None
     col_pessoa = None
@@ -1200,10 +1557,9 @@ def get_ocorrencias(pessoa: str, type: str):
                     result_df['E-mails'] = filtered_df.iloc[:, 10] + ', ' + filtered_df.iloc[:, 11] 
                     result_df['Obs. do solicitante'] = filtered_df.iloc[:, 9]
 
-
                 if not result_df.empty:
                     result_json = result_df.to_json(orient='records', force_ascii=False)
-                    st.json(result_json)
+                    return st.json(result_json)
                 else:
                     st.toast(":red[**Erro, o dataframe result_df está vazio.**]")
             except Exception as e:
@@ -1211,7 +1567,7 @@ def get_ocorrencias(pessoa: str, type: str):
                 return None
         else:
             return None
-
+    
     st.write("")
     st.write("")
 
