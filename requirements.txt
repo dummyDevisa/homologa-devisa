@@ -109,14 +109,14 @@ sortedcontainers==2.4.0
 soupsieve==2.6
 st-copy-to-clipboard==0.1.6
 streamlit==1.44.1
-streamlit-aggrid==1.0.5
+streamlit-aggrid==1.1.4.post1
 streamlit-javascript==0.1.5
 streamlit-js==1.0.8
 streamlit-js-eval==0.1.7
 tabcompleter==1.4.0
 tenacity==9.1.2
 toml==0.10.2
-tornado==6.4.2
+tornado==6.5.0
 tqdm==4.67.1
 trio==0.29.0
 trio-websocket==0.12.2
