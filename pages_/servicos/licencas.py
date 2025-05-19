@@ -2,49 +2,45 @@ import streamlit as st
 import pandas as pd
 from load_functions import *
 from webdriver_gdoc import *
-# from streamlit_gsheets import GSheetsConnection
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-# import json, gspread
-# import re, time #, pyperclip
+import re
 import datetime
 
+# ... (código inicial e função load_lf_df como antes) ...
 st.header("Licença de Funcionamento", anchor=False)
 
-if 'reload_lf_df' not in st.session_state:
-    st.session_state.reload_lf_df = False
-    # declarar primeiro, e recarregar os outros bancos
-    st.session_state.reload_div_df = True
-    st.session_state.reload_tx_df = True
-
-# recarregar os outros bancos
-st.session_state.reload_div_df = True
-st.session_state.reload_tx_df = True
-
 @st.cache_data(ttl=300, show_spinner="Carregando banco de LFs...")
-def load_lf_df():   
+def load_lf_df():
     worksheet = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
     data = worksheet.get_all_records(numericise_ignore=['all'])
     df = pd.DataFrame(data)
     return df
 
+if 'reload_lf_df' not in st.session_state:
+    st.session_state.reload_lf_df = False
+    st.session_state.reload_div_df = True
+    st.session_state.reload_tx_df = True
+
+st.session_state.reload_div_df = True
+st.session_state.reload_tx_df = True
+
 if 'lf_df' not in st.session_state:
     lf_df_aux = load_lf_df()
-    st.session_state.lf_df = lf_df_aux[lf_df_aux["Validade"] != "Inválido"]
+    st.session_state.lf_df = lf_df_aux[lf_df_aux["Validade"] != "Inválido"].copy()
     st.session_state.lf_df = st.session_state.lf_df.reset_index(drop=True)
     st.session_state.lf_df['Data_Solicitacao_dt'] = pd.to_datetime(
         st.session_state.lf_df['Data Solicitação'],
-        format='%d/%m/%y, %H:%M'
+        format='%d/%m/%y, %H:%M', errors='coerce'
     )
 
 if st.session_state.reload_lf_df:
     st.session_state.lf_df = None
     load_lf_df.clear()
     df_lf_aux = load_lf_df()
-    st.session_state.lf_df = df_lf_aux[df_lf_aux["Validade"] != "Inválido"]
+    st.session_state.lf_df = df_lf_aux[df_lf_aux["Validade"] != "Inválido"].copy()
     st.session_state.lf_df = st.session_state.lf_df.reset_index(drop=True)
     st.session_state.lf_df['Data_Solicitacao_dt'] = pd.to_datetime(
         st.session_state.lf_df['Data Solicitação'],
-        format='%d/%m/%y, %H:%M'
+        format='%d/%m/%y, %H:%M', errors='coerce'
     )
     st.session_state.reload_lf_df = False
 
@@ -56,689 +52,737 @@ if 'checkbox_nao_respondidas_lf' not in st.session_state:
     st.session_state.checkbox_nao_respondidas_lf = False
     st.session_state.disable_checkbox_nao_respondidas_lf = True
 
-with st.expander("Registro de Solicitações", expanded=True):
 
+with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
 
     with colx:
         col1, col2, col3 = st.columns([0.9, 1.0, 1.1], vertical_alignment="center", gap="small")
         
-        # Inicializando o session_state se necessário
-        if 'status_checker_lf' not in st.session_state:
-            st.session_state.status_checker_lf = None
-            st.session_state.index_status_lf = 0
+        if 'status_selecionado_lf' not in st.session_state:
+            st.session_state.status_selecionado_lf = 'Passivo'
 
-        # Atualizando o índice com base no status_checker
-        match st.session_state.status_checker_lf:
-            case 'Passivo':
-                st.session_state.index_status_lf = 0
-            case 'Deferido':
-                st.session_state.index_status_lf = 1
-            case 'Indeferido':
-                st.session_state.index_status_lf = 2
-
-        # Definindo as opções
         status_options = ['Passivo', 'Deferido', 'Indeferido']
+        
+        current_default_for_pills = [st.session_state.status_selecionado_lf] if st.session_state.status_selecionado_lf in status_options else [status_options[0]]
 
-        # Pegando valor default baseado no índice
-        default_status = [status_options[st.session_state.index_status_lf]]
-
-        # Filtro de Status usando PILLS
         with col3:
-            status_selecionado_pills = st.pills(
+            selected_status_from_pill = st.pills(
                 label="Filtro por Status:",
                 options=status_options,
-                selection_mode="single",
-                default=default_status,
-                key="status_selecionado_pills",
+                default=current_default_for_pills,
+                key="status_pills_filter_key", 
                 help="Escolha o status do processo",
                 label_visibility='collapsed'
             )
-
-        # Atualiza o session_state.status_checker para refletir a escolha atual
-        if status_selecionado_pills:
-            st.session_state.status_checker_lf = status_selecionado_pills[0]
-        else:
-            st.session_state.status_checker_lf = None
-
-        # Filtro de Tipo Processo (continuando o que você já tinha)
-        tipo_processo_opcoes = st.session_state.lf_df['Tipo Processo'].unique()  # Valores únicos
         
-        status_selecionado_lf = status_selecionado_pills
+        if selected_status_from_pill and selected_status_from_pill != st.session_state.status_selecionado_lf:
+            st.session_state.status_selecionado_lf = selected_status_from_pill
+            st.rerun() 
 
-        if st.session_state.status_checker_lf in ['Deferido', 'Indeferido']:
+        status_para_filtragem = st.session_state.status_selecionado_lf
+        
+        if status_para_filtragem in ['Deferido', 'Indeferido']:
             st.session_state.disable_checkbox_minhas_lf = False
             st.session_state.disable_checkbox_nao_respondidas_lf = False
-
-            st.session_state.checkbox_nao_respondidas_lf = True
-            st.session_state.checkbox_minhas_lf = True
-        else:
+            if st.session_state.get('_last_main_status_for_secondary_default') != status_para_filtragem:
+                st.session_state.secondary_pills_default = ["As minhas", "Não resp."]
+                st.session_state._last_main_status_for_secondary_default = status_para_filtragem
+        else: 
             st.session_state.disable_checkbox_minhas_lf = True
             st.session_state.disable_checkbox_nao_respondidas_lf = True
+            if st.session_state.get('_last_main_status_for_secondary_default') != status_para_filtragem:
+                st.session_state.secondary_pills_default = []
+                st.session_state._last_main_status_for_secondary_default = status_para_filtragem
 
-            st.session_state.checkbox_nao_respondidas_lf = False
-            st.session_state.checkbox_minhas_lf = False
-
-        # Defina as opções disponíveis
-        opcoes = ["As minhas", "Não resp."]
-
-        # Determine as opções selecionadas com base no estado atual
-        selecionadas = []
-        if st.session_state.checkbox_minhas_lf:
-            selecionadas.append("As minhas")
-        if st.session_state.checkbox_nao_respondidas_lf:
-            selecionadas.append("Não resp.")
-
-        # Exiba as pílulas para seleção múltipla
-        with col2:
-            selecionadas = st.pills(
-                label="Filtros",
-                options=opcoes,
-                selection_mode="multi",
-                default=selecionadas,
-                key="filtros_pills",
-                help="Selecione os filtros desejados",
-                label_visibility='collapsed'
-            )
+        opcoes_filtros_secundarios = ["As minhas", "Não resp."]
         
-        with col1:
+        with col2:
+            default_filtros_secundarios_val = st.session_state.get('secondary_pills_default', [])
+            
+            selecionadas_filtros_secundarios = st.pills(
+                label="Filtros Secundários",
+                options=opcoes_filtros_secundarios,
+                default=default_filtros_secundarios_val,
+                selection_mode="multi",
+                key="filtros_pills_secundarios_key", 
+                help="Selecione os filtros desejados",
+                label_visibility='collapsed',
+                disabled=st.session_state.disable_checkbox_minhas_lf 
+            )
+
+        st.session_state.checkbox_minhas_lf = "As minhas" in selecionadas_filtros_secundarios
+        st.session_state.checkbox_nao_respondidas_lf = "Não resp." in selecionadas_filtros_secundarios
+        
+        if status_para_filtragem in ['Deferido', 'Indeferido']:
+            if st.session_state.secondary_pills_default != selecionadas_filtros_secundarios:
+                 st.session_state.secondary_pills_default = selecionadas_filtros_secundarios
+
+        with col1: 
             today = datetime.date.today()
             thirty_days_ago = today - datetime.timedelta(days=30)
-
-            # 1) Captura o retorno numa só variável
+            min_date_selectable = datetime.date(2020, 1, 1)
+            range_dates_value = (thirty_days_ago + datetime.timedelta(days=1), today)
             range_dates = st.date_input(
                 "Intervalo de Datas",
-                value=(thirty_days_ago + datetime.timedelta(days=1),today),
-                min_value=thirty_days_ago + datetime.timedelta(days=1),
+                value=range_dates_value,
+                min_value=min_date_selectable, 
                 max_value=today,
                 format="DD/MM/YYYY",
-                label_visibility='collapsed'
+                label_visibility='collapsed',
+                key="date_input_lf_key"
             )
-
-            # 2) Verifica que veio uma sequência de duas datas
             if isinstance(range_dates, (tuple, list)) and len(range_dates) == 2:
                 data_inicio, data_fim = range_dates
             else:
-                # Aqui você pode:
-                # - Dar um warning pro usuário
-                # - Usar hoje/hoje como fallback
-                # - Tratar de outra forma
-                st.toast("🛑 :red[**Selecione um intervalo de datas.**]")
-                # Exemplo de fallback:
-                data_inicio = data_fim = range_dates if not isinstance(range_dates, (tuple, list)) else range_dates[0]
+                st.toast("🛑 :red[**Intervalo de datas inválido. Usando data de hoje.**]")
+                data_inicio = data_fim = today if isinstance(range_dates, datetime.date) else today
 
-        # Atualize os estados com base nas seleções
-        st.session_state.checkbox_minhas_lf = "As minhas" in selecionadas
-        st.session_state.checkbox_nao_respondidas_lf = "Não resp." in selecionadas
-        
-        st.session_state.lf_df['Status'] = st.session_state.lf_df['Status'].replace("", "Passivo")
-
-        # Filtrando os dados com base no status selecionado
-        df_geral = st.session_state.lf_df[st.session_state.lf_df['Status'] == status_selecionado_lf] if status_selecionado_lf else st.session_state.lf_df
-
-        # Filtro: "As minhas"
-        if "As minhas" in selecionadas:
-            df_geral = df_geral[df_geral['Servidor'] == st.session_state.sessao_servidor]
-        
-        # Filtro: "Não resp."
-        if "Não resp." in selecionadas:
-            df_geral = df_geral[df_geral['Respondido'] == "Não"]
-        
-        if data_inicio and data_fim:
-            # print(f"data_inicio: {data_inicio}, data_fim: {data_fim}")
-            # — filtro por data usando a coluna datetime
-            df_geral = df_geral[
-                (df_geral['Data_Solicitacao_dt'].dt.date >= data_inicio) &
-                (df_geral['Data_Solicitacao_dt'].dt.date <= data_fim)
-            ]
-
-        # Exibe DataFrame final
-        lf_df_filtrado = df_geral.iloc[:, [0, 1, 4, 2, 8, 7]]
-
-
-        gg = GridOptionsBuilder.from_dataframe(lf_df_filtrado)
-        gg.configure_default_column(
-            cellStyle={'font-size': '15px'},
-            resizable=True,  # Permite redimensionar as colunas
-            filterable=False,
-            sortable=False,
-            groupable=False
-        )
-        gg.configure_column("Código Solicitação", minWidth=101, maxWidth=101, header_name="Cód.")
-        gg.configure_column("Data Solicitação", minWidth=130, maxWidth=130, header_name="Data")
-        gg.configure_column("CPF / CNPJ", minWidth=160, maxWidth=160, header_name="CPF / CNPJ")
-        gg.configure_column("Tipo Processo", minWidth=120, maxWidth=120, header_name="Licença")
-        gg.configure_column("Setor", minWidth=80, maxWidth=80, header_name="Setor")
-        gg.configure_column("Possível Divisão", minWidth=90, maxWidth=90, header_name="Div.")
-        gg.configure_selection('single')  # Permite a seleção de uma linha
-        gg.configure_pagination(paginationAutoPageSize=False, paginationPageSize=5)
-        # Configurar opções do grid
-        grid_options = gg.build()
-        grid_options["domLayout"] = "print"  # Redimensiona automaticamente o grid
-        grid_options["suppressContextMenu"] = True
-        grid_options["suppressMenu"] = True
-        grid_options["pagination"] = True  # Ativa paginação no grid
-        grid_options["paginationPageSizeSelector"] = False
-
-        # Renderizando o AgGrid
-        grid_response_lf = AgGrid(
-            lf_df_filtrado,
-            height=224,
-            gridOptions=grid_options,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            theme='streamlit'
-        )
-
-        selected_row_lf = grid_response_lf.get('selected_rows', None)
+        if 'lf_df' not in st.session_state or st.session_state.lf_df is None or st.session_state.lf_df.empty:
+            st.warning("Banco de LFs está vazio ou não carregado.")
+            df_geral = pd.DataFrame()
+        else:
+            df_geral_source = st.session_state.lf_df.copy()
+            df_geral_source['Status'] = df_geral_source['Status'].replace("", "Passivo")
             
-        if not selected_row_lf is None: 
-            selected_index_lf = df_geral.loc[df_geral['Código Solicitação'] == selected_row_lf['Código Solicitação'].iloc[0]].index
+            df_geral = df_geral_source[df_geral_source['Status'] == status_para_filtragem] if status_para_filtragem else df_geral_source
 
-        if 'aggrid_gh_col2' not in st.session_state:
-            st.session_state.aggrid_gh_col2 = None
+            if st.session_state.checkbox_minhas_lf:
+                df_geral = df_geral[df_geral['Servidor'] == st.session_state.get("sessao_servidor")]
+            
+            if st.session_state.checkbox_nao_respondidas_lf:
+                df_geral = df_geral[df_geral['Respondido'] == "Não"]
+            
+            if data_inicio and data_fim:
+                df_geral = df_geral[
+                    (df_geral['Data_Solicitacao_dt'].dt.date >= data_inicio) &
+                    (df_geral['Data_Solicitacao_dt'].dt.date <= data_fim)
+                ]
+        
+        if not df_geral.empty:
+            try:
+                cols_to_display_indices = [0, 1, 2, 4, 8, 7] 
+                lf_df_filtrado = df_geral.iloc[:, cols_to_display_indices].reset_index(drop=True)
+                
+                if len(lf_df_filtrado.columns) > 3:
+                    st.session_state.cpf_cnpj_col_name_in_lf_filtrado = lf_df_filtrado.columns[3]
+                else:
+                    st.session_state.cpf_cnpj_col_name_in_lf_filtrado = None
+            except IndexError:
+                st.error("Erro ao selecionar colunas para a tabela de solicitações. Verifique a estrutura do DataFrame 'lf_df'.")
+                lf_df_filtrado = pd.DataFrame()
+                st.session_state.cpf_cnpj_col_name_in_lf_filtrado = None
+        else:
+            expected_col_names_lf = []
+            if 'lf_df' in st.session_state and not st.session_state.lf_df.empty:
+                base_cols_lf = st.session_state.lf_df.columns
+                indices_lf = [0, 1, 2, 4, 8, 7] 
+                for i_lf in indices_lf:
+                    if i_lf < len(base_cols_lf): expected_col_names_lf.append(base_cols_lf[i_lf])
+                    else: expected_col_names_lf.append(f"Coluna_{i_lf}") 
+            else: 
+                expected_col_names_lf = ["Cód. Solicitação", "Data Solicitação", "Tipo Processo", "CPF / CNPJ", "Setor", "Possível Divisão"]
+            lf_df_filtrado = pd.DataFrame(columns=expected_col_names_lf)
+            st.session_state.cpf_cnpj_col_name_in_lf_filtrado = expected_col_names_lf[3] if len(expected_col_names_lf) > 3 else None
+
+
+        st.markdown("##### Solicitações de Licença") 
+        
+        column_config_lf = {}
+        headers_lf_display = ["Cód.", "Data", "Licença", "CPF / CNPJ", "Setor", "Div."] 
+        
+        if not lf_df_filtrado.empty:
+            for i, col_name_actual in enumerate(lf_df_filtrado.columns):
+                if i < len(headers_lf_display):
+                    column_config_lf[col_name_actual] = st.column_config.TextColumn(headers_lf_display[i])
+                else: 
+                    column_config_lf[col_name_actual] = st.column_config.TextColumn(col_name_actual)
+        else: 
+            for i, col_name_fallback_lf in enumerate(lf_df_filtrado.columns):
+                header_name_lf = headers_lf_display[i] if i < len(headers_lf_display) else col_name_fallback_lf
+                column_config_lf[col_name_fallback_lf] = st.column_config.TextColumn(header_name_lf)
+
+
+        LF_TABLE_KEY = "lf_table_selection"
+
+        st.dataframe(
+            lf_df_filtrado,
+            key=LF_TABLE_KEY, 
+            on_select="rerun",  
+            selection_mode="single-row", 
+            column_config=column_config_lf,
+            height=224, 
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        total_exibido_lf = len(lf_df_filtrado)
+        badge_text_lf = f"Exibindo: {total_exibido_lf}"
+
+        if 'lf_df' in st.session_state and not st.session_state.lf_df.empty:
+            base_df_for_badge_lf = st.session_state.lf_df.copy()
+            base_df_for_badge_lf['Status'] = base_df_for_badge_lf['Status'].replace("", "Passivo")
+            total_passivos_badge_lf = len(base_df_for_badge_lf[base_df_for_badge_lf['Status'] == 'Passivo'])
+            
+            if "Respondido" in base_df_for_badge_lf.columns:
+                total_nao_respondidos_badge_lf = len(base_df_for_badge_lf[base_df_for_badge_lf['Respondido'] == 'Não'])
+                badge_text_lf += f" | Total Passivos: {total_passivos_badge_lf} | Não Resp.: {total_nao_respondidos_badge_lf}"
+            else:
+                badge_text_lf += f" | Total Passivos: {total_passivos_badge_lf} | Não Resp.: N/A"
+            
+            st.badge(badge_text_lf, color="blue")
+        else:
+            st.badge(f"Exibindo: {total_exibido_lf} | Totais Gerais: N/A", color="grey")
+
+
+        selected_row_lf_df = pd.DataFrame() 
+        original_selected_index_lf = None 
+
+        if LF_TABLE_KEY in st.session_state:
+            selection = st.session_state[LF_TABLE_KEY].selection
+            if selection.rows: 
+                selected_df_index = selection.rows[0] 
+                if selected_df_index < len(lf_df_filtrado):
+                    selected_row_lf_df = lf_df_filtrado.iloc[[selected_df_index]]
+                    if not selected_row_lf_df.empty and not df_geral.empty:
+                        nome_coluna_codigo_lf_sel = lf_df_filtrado.columns[0] 
+                        cod_solicitacao_selecionado_lf_sel = selected_row_lf_df[nome_coluna_codigo_lf_sel].iloc[0]
+                        
+                        coluna_codigo_em_df_geral_sel = df_geral.columns[0] 
+                        match_in_df_geral_sel = df_geral[df_geral[coluna_codigo_em_df_geral_sel] == cod_solicitacao_selecionado_lf_sel]
+                        if not match_in_df_geral_sel.empty:
+                             original_selected_index_lf = match_in_df_geral_sel.index[0]
+                else:
+                    st.warning("Índice de seleção fora dos limites da tabela filtrada (solicitações).")
+
+        if 'aggrid_gh_col2' not in st.session_state: 
+             st.session_state.aggrid_gh_col2 = pd.DataFrame()
         
         if 'lf_clear_clicked' not in st.session_state:
             st.session_state.lf_clear_clicked = False
 
     with coly:
-        col1, col2 = st.columns([0.5, 1.5], vertical_alignment="center")
+        col1_y, col2_y = st.columns([0.5, 1.5], vertical_alignment="top")
+        opcoes_filtro_dummy = ['Alfa', 'Beta', 'Gama', 'Delta'] 
+        with col1_y:
+            st.text_input("Teste 1 (desabilitado)", value="", disabled=True, label_visibility='collapsed', key="dummy_test1_coly")
+        with col2_y: 
+            st.selectbox("Teste 2 (desabilitado)", opcoes_filtro_dummy, index=1, disabled=True, label_visibility='collapsed', key="dummy_test2_coly")
 
-        # Definindo opções
-        opcoes_filtro = ['Alfa', 'Beta', 'Gama', 'Delta']
-
-        with col1:
-            teste1 = st.text_input(
-                label_visibility='collapsed',
-                label='Teste 1',
-                disabled=True,
-            )
-
-        with col2:
-            teste2 = st.segmented_control(
-                label="Ivory tower 2",
-                options=opcoes_filtro,
-                selection_mode="single",
-                default=["Beta"],
-                disabled=True,
-                key="teste2_pills",
-                label_visibility='collapsed'
-            )
-
-        lf_merged_df = st.session_state.merged_df
+        lf_merged_df_hist_source = st.session_state.get('merged_df', pd.DataFrame()).copy() # Use .copy()
         
-        st.session_state.df_geral_2025 = load_df_2025()
+        if 'df_geral_2025' not in st.session_state or st.session_state.df_geral_2025 is None:
+            st.session_state.df_geral_2025 = load_df_2025() 
 
-        df_geral_2025 = st.session_state.df_geral_2025
-        if not 'Index' in df_geral_2025.columns:
-            df_geral_2025 = df_geral_2025.ffill()
-            df_geral_2025['Index'] = range(len(df_geral_2025))
+        df_geral_2025_hist_source = st.session_state.df_geral_2025.copy() # Use .copy()
 
-        # Verifica se há uma linha selecionada na tabela da col1
-        if not selected_row_lf is None:  # Verifica se existe uma linha selecionada
-            #selected_cpf_cnpj = selected_rows[0].get("CPF / CNPJ", None)
-            selected_cpf_cnpj = selected_row_lf['CPF / CNPJ']
+        # Função auxiliar para preparar DataFrame de histórico com UniqueID
+        def prepare_hist_df(df, source_name):
+            if df.empty:
+                df['Index'] = pd.Series(dtype='object') # Garante que 'Index' existe mesmo se vazio
+                df['Source'] = pd.Series(dtype='object')
+                return df
 
-            if not selected_cpf_cnpj is None:
-                # Filtra o DataFrame para exibir somente linhas com o mesmo CPF / CNPJ
-                filtered_lf_merged_df = lf_merged_df[lf_merged_df["CPF / CNPJ"] == selected_cpf_cnpj.iloc[0]]
-                filtered_geral_2025 = df_geral_2025[df_geral_2025['CPF / CNPJ'] == selected_cpf_cnpj.iloc[0]]
+            # Guarda o índice original se não for o default (0, 1, 2...)
+            # Se o índice já for um RangeIndex, reset_index não adiciona uma coluna 'index' por padrão
+            # a menos que o índice tenha um nome ou seja MultiIndex.
+            # Para ser seguro, resetamos e depois verificamos.
+            df_processed = df.reset_index() # Cria coluna 'index' ou 'level_0'
+            
+            # Renomear a coluna de índice recém-criada para 'OriginalRowIndex' para evitar conflito
+            if 'index' in df_processed.columns: # Nome padrão
+                df_processed.rename(columns={'index': 'OriginalRowIndex'}, inplace=True)
+            elif 'level_0' in df_processed.columns: # Caso de MultiIndex resetado
+                 df_processed.rename(columns={'level_0': 'OriginalRowIndex'}, inplace=True)
+            # Se já existia uma coluna 'OriginalRowIndex', o código acima pode falhar ou ter comportamento inesperado.
+            # Uma abordagem mais robusta seria verificar e dropar 'OriginalRowIndex' se já existir.
 
-                allin_merged_df = pd.concat([filtered_geral_2025, filtered_lf_merged_df], ignore_index=True)
+            df_processed['Source'] = source_name
+            # Usa 'OriginalRowIndex' para criar UniqueID
+            df_processed['Index'] = source_name + '_' + df_processed['OriginalRowIndex'].astype(str)
+            return df_processed
+
+        df_geral_2025_hist = prepare_hist_df(df_geral_2025_hist_source, '2025')
+        lf_merged_df_hist = prepare_hist_df(lf_merged_df_hist_source, 'Merged')
+        
+        allin_merged_df_hist = pd.DataFrame() 
+
+        if not selected_row_lf_df.empty and st.session_state.get('cpf_cnpj_col_name_in_lf_filtrado'):
+            nome_coluna_cpf_cnpj_para_filtro_hist = st.session_state.cpf_cnpj_col_name_in_lf_filtrado
+            if nome_coluna_cpf_cnpj_para_filtro_hist in selected_row_lf_df.columns:
+                selected_cpf_cnpj_val_hist = selected_row_lf_df[nome_coluna_cpf_cnpj_para_filtro_hist].iloc[0]
+                
+                filtered_lf_merged_df_hist_result = pd.DataFrame()
+                if "CPF / CNPJ" in lf_merged_df_hist.columns:
+                    filtered_lf_merged_df_hist_result = lf_merged_df_hist[lf_merged_df_hist["CPF / CNPJ"] == selected_cpf_cnpj_val_hist]
+                
+                filtered_geral_2025_hist_result = pd.DataFrame()
+                if "CPF / CNPJ" in df_geral_2025_hist.columns:
+                    filtered_geral_2025_hist_result = df_geral_2025_hist[df_geral_2025_hist['CPF / CNPJ'] == selected_cpf_cnpj_val_hist]
+                
+                # Concatenar mantendo os índices originais (que agora estão na coluna 'Index' como UniqueID)
+                allin_merged_df_hist = pd.concat([filtered_geral_2025_hist_result, filtered_lf_merged_df_hist_result], ignore_index=True)
             else:
-                allin_merged_df = pd.DataFrame()  # Nenhuma linha será exibida se CPF / CNPJ não for encontrado
+                pass 
         else:
-            allin_merged_df = pd.DataFrame()  # Nenhuma linha será exibida se nada for selecionado
-
-        # Configuração da tabela AgGrid para col2
+            pass
         
-        if st.session_state.lf_clear_clicked:
-            st.session_state.aggrid_gh_col2 = pd.DataFrame()
-            st.session_state.lf_clear_clicked = False
+        cols_to_select_hist_display = { 
+            "Protocolo": "Protocolo", "Data Criação": "Data Criação",
+            "CPF / CNPJ": "CPF / CNPJ", "Tipo Processo": "Tipo Processo",
+            "Index": "Index" # Este é o UniqueID
+        }
+
+        if st.session_state.lf_clear_clicked: 
+            st.session_state.aggrid_gh_col2 = pd.DataFrame(columns=list(cols_to_select_hist_display.values())) 
+            st.session_state.lf_clear_clicked = False 
         else:
-            st.session_state.aggrid_gh_col2 = allin_merged_df.iloc[:, [0, 4, 8, 1, 10]] if not allin_merged_df.empty else pd.DataFrame(columns=["Protocolo", "Data Criação", "CPF / CNPJ", "Tipo Processo"])
-            st.session_state.aggrid_gh_col2 = st.session_state.aggrid_gh_col2.copy() # fazer uma cópia do df evita o warning fdp
-            st.session_state.aggrid_gh_col2["Data Criação"] = pd.to_datetime(
-                st.session_state.aggrid_gh_col2["Data Criação"], 
-                format="%d/%m/%Y", 
-                errors="coerce"
-            )
-            st.session_state.aggrid_gh_col2 = st.session_state.aggrid_gh_col2.sort_values(by="Data Criação", ascending=False)
-            st.session_state.aggrid_gh_col2["Data Criação"] = st.session_state.aggrid_gh_col2["Data Criação"].dt.strftime("%d/%m/%Y")
+            if not allin_merged_df_hist.empty:
+                # Garantir que as colunas a serem selecionadas existam em allin_merged_df_hist
+                actual_cols_to_select = [col for col in cols_to_select_hist_display.keys() if col in allin_merged_df_hist.columns]
+                
+                if len(actual_cols_to_select) < 4 : # Se faltar alguma das colunas principais
+                     st.session_state.aggrid_gh_col2 = pd.DataFrame(columns=list(cols_to_select_hist_display.values()))
+                else:
+                    temp_df_hist_display = allin_merged_df_hist[actual_cols_to_select].copy()
+                    # Renomear colunas se necessário (cols_to_select_hist_display pode mapear nomes originais para nomes de display)
+                    # temp_df_hist_display.rename(columns=cols_to_select_hist_display, inplace=True) # Cuidado com inplace
 
-        gh = GridOptionsBuilder.from_dataframe(st.session_state.aggrid_gh_col2)
-        gh.configure_column("Index", hide=True)
-        gh.configure_default_column(cellStyle={'font-size': '15px'})
-        gh.configure_default_column(resizable=False, filterable=False, sortable=False, groupable=False)
-        gh.configure_column("Protocolo", minWidth=101, maxWidth=101, header_name="Protocolo")
-        gh.configure_column("Data Criação", minWidth=130, maxWidth=130, header_name="Data")
-        gh.configure_column("CPF / CNPJ", minWidth=160, maxWidth=160, header_name="CPF / CNPJ")
-        gh.configure_column("Tipo Processo", minWidth=290, maxWidth=290, header_name="Tipo Processo")
-        gh.configure_selection('single')
-        gh.configure_pagination(paginationAutoPageSize=False, paginationPageSize=5)
-        gh.configure_grid_options(onCellClicked=True)
+                    if "Data Criação" in temp_df_hist_display.columns:
+                        temp_df_hist_display["Data Criação"] = pd.to_datetime(temp_df_hist_display["Data Criação"], format="%d/%m/%Y", errors="coerce")
+                        temp_df_hist_display = temp_df_hist_display.sort_values(by="Data Criação", ascending=False)
+                        temp_df_hist_display["Data Criação"] = temp_df_hist_display["Data Criação"].dt.strftime("%d/%m/%Y").fillna("")
+                    st.session_state.aggrid_gh_col2 = temp_df_hist_display
+            else: 
+                st.session_state.aggrid_gh_col2 = pd.DataFrame(columns=list(cols_to_select_hist_display.values()))
 
-        # Configurar opções do grid
-        grid_options_merged = gh.build()
-        grid_options_merged["domLayout"] = "print"
-        grid_options_merged["suppressContextMenu"] = True
-        grid_options_merged["suppressMenu"] = True
-        grid_options_merged["suppressRowClickSelection"] = False
-       
-        grid_options_merged["pagination"] = True
-        grid_options_merged["paginationPageSizeSelector"] = False
 
-        grid_response_merged_lf = AgGrid(
-            st.session_state.aggrid_gh_col2,
-            height=224,
-            gridOptions=grid_options_merged,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            theme='streamlit'
+        st.markdown("##### Histórico do Contribuinte")
+        
+        column_config_merged = {
+            "Index": None, 
+            "Protocolo": st.column_config.TextColumn("Protocolo"),
+            "Data Criação": st.column_config.TextColumn("Data"),   
+            "CPF / CNPJ": st.column_config.TextColumn("CPF / CNPJ"),
+            "Tipo Processo": st.column_config.TextColumn("Tipo Processo") 
+        }
+        MERGED_TABLE_KEY = "merged_table_selection"
+        
+        current_gh_col2_df_display = st.session_state.aggrid_gh_col2.reset_index(drop=True)
+
+        st.dataframe(
+            current_gh_col2_df_display, 
+            key=MERGED_TABLE_KEY,
+            on_select="rerun",
+            selection_mode="single-row",
+            column_config=column_config_merged,
+            height=224, 
+            use_container_width=True,
+            hide_index=True
         )
 
+        total_exibido_hist = len(current_gh_col2_df_display)
+        st.badge(f"Exibindo: {total_exibido_hist}", color="green")
+
+
         if 'sel_merged_lf' not in st.session_state:
-            st.session_state.sel_merged_lf = None
+            st.session_state.sel_merged_lf = pd.DataFrame() 
 
-        st.session_state.sel_merged_lf = grid_response_merged_lf.get('selected_rows', None)
-
-        # @st.dialog("Detalhes do Processo selecionado:", width="large")
-        def show_data():
-            if '2025' in str(st.session_state.sel_merged_lf['Data Criação']):
-                selected_index_lf_merged = df_geral_2025.loc[df_geral_2025.loc[:,'Index'] == st.session_state.sel_merged_lf['Index'].iloc[0]]
-                selected_index_lf_merged.loc[:, 'Valor'] = selected_index_lf_merged['Valor'].map(
-                    lambda x: x if isinstance(x, str) and x.startswith('R$') else f'R$ {x:,.2f}' if isinstance(x, (int, float)) else 'R$ 0,00'
-                )
+        if MERGED_TABLE_KEY in st.session_state:
+            selection_merged = st.session_state[MERGED_TABLE_KEY].selection
+            if selection_merged.rows:
+                selected_merged_df_index = selection_merged.rows[0]
+                if selected_merged_df_index < len(current_gh_col2_df_display):
+                    st.session_state.sel_merged_lf = current_gh_col2_df_display.iloc[[selected_merged_df_index]]
+                else:
+                    st.session_state.sel_merged_lf = pd.DataFrame() 
             else:
-                selected_index_lf_merged = lf_merged_df.loc[lf_merged_df.loc[:,'Index'] == st.session_state.sel_merged_lf['Index'].iloc[0]]
-                selected_index_lf_merged.loc[:, 'Valor'] = selected_index_lf_merged['Valor'].map(
-                    lambda x: f'R$ {x:,.2f}' if isinstance(x, (int, float)) else 'R$ 0,00'
-                )
+                 st.session_state.sel_merged_lf = pd.DataFrame()
 
-            selected_index_lf_merged.loc[:,'Data Criação'] = selected_index_lf_merged['Data Criação']
-            # json_data = selected_index_lf_merged.to_json(orient='records', lines=False)
-            # st.json(json_data)
-            show_dadosProcesso(selected_index_lf_merged)
+        @st.dialog("Detalhes do Processo", width="large") 
+        def show_data_dialog(selected_row_data_df_arg): 
+            if selected_row_data_df_arg.empty or 'Index' not in selected_row_data_df_arg.columns:
+                st.warning("Nenhum dado selecionado ou 'Index' ausente para exibir detalhes.")
+                return
 
-        if not st.session_state.sel_merged_lf is None:
-            show_data()
-            # st.session_state.sel_merged_lf = None
+            unique_id_val_dialog = selected_row_data_df_arg['Index'].iloc[0]
+            
+            df_to_process_dialog = pd.DataFrame() 
+
+            if isinstance(unique_id_val_dialog, str) and unique_id_val_dialog.startswith('2025_'):
+                if 'Index' in df_geral_2025_hist.columns: 
+                    match_2025_dialog = df_geral_2025_hist[df_geral_2025_hist['Index'] == unique_id_val_dialog]
+                    if not match_2025_dialog.empty:
+                        df_to_process_dialog = match_2025_dialog.copy()
+                        if 'Valor' in df_to_process_dialog.columns:
+                            df_to_process_dialog.loc[:, 'Valor'] = df_to_process_dialog['Valor'].apply(
+                                lambda x: x if isinstance(x, str) and x.startswith('R$') 
+                                else (f'R$ {float(x):,.2f}' if pd.notnull(x) and isinstance(x, (int, float)) else 'R$ 0,00')
+                            )
+            elif isinstance(unique_id_val_dialog, str) and unique_id_val_dialog.startswith('Merged_'):
+                if 'Index' in lf_merged_df_hist.columns: 
+                    match_merged_dialog = lf_merged_df_hist[lf_merged_df_hist['Index'] == unique_id_val_dialog]
+                    if not match_merged_dialog.empty:
+                        df_to_process_dialog = match_merged_dialog.copy()
+                        if 'Valor' in df_to_process_dialog.columns:
+                             df_to_process_dialog.loc[:, 'Valor'] = df_to_process_dialog['Valor'].apply(
+                                lambda x: f'R$ {float(x):,.2f}' if pd.notnull(x) and isinstance(x, (int, float)) 
+                                else ('R$ 0,00' if pd.isnull(x) else str(x))
+                            )
+            else: # Fallback se o UniqueID não tiver o prefixo esperado (improvável, mas para segurança)
+                st.warning(f"Formato de ID único desconhecido: {unique_id_val_dialog}")
 
 
+            if not df_to_process_dialog.empty:
+                cols_to_drop_dialog = ['Source', 'UniqueID', 'OriginalRowIndex', 'index'] # Colunas auxiliares
+                df_to_display_final_dialog = df_to_process_dialog.drop(columns=[col for col in cols_to_drop_dialog if col in df_to_process_dialog.columns], errors='ignore')
+                show_dadosProcesso(df_to_display_final_dialog) 
+            else:
+                st.warning(f"Não foi possível encontrar os detalhes para o item selecionado (ID: {unique_id_val_dialog}).")
 
 
-# st.write(st.session_state.merged_df) ##################################################################################################
+        if not st.session_state.sel_merged_lf.empty:
+            if 'show_details_dialog_trigger' not in st.session_state:
+                st.session_state.show_details_dialog_trigger = False
+            if 'last_selected_merged_index' not in st.session_state:
+                st.session_state.last_selected_merged_index = None
+            
+            current_sel_index_dialog = st.session_state.sel_merged_lf['Index'].iloc[0] if not st.session_state.sel_merged_lf.empty and 'Index' in st.session_state.sel_merged_lf.columns else None
+
+            if current_sel_index_dialog is not None and current_sel_index_dialog != st.session_state.last_selected_merged_index:
+                st.session_state.show_details_dialog_trigger = True
+                st.session_state.last_selected_merged_index = current_sel_index_dialog
+            elif current_sel_index_dialog is None: 
+                st.session_state.last_selected_merged_index = None
+
+            if st.session_state.get('show_details_dialog_trigger', False):
+                show_data_dialog(st.session_state.sel_merged_lf) 
+                st.session_state.show_details_dialog_trigger = False
+
+# --- Formulário (restante do código igual ao anterior) ---
+# ... (código do formulário aqui) ...
+# (Cole o código do formulário da resposta anterior aqui)
+if 'lf_empty_df' not in st.session_state:
+    if 'lf_df' in st.session_state and not st.session_state.lf_df.empty:
+        empty_series = pd.Series(index=st.session_state.lf_df.columns, dtype='object').fillna("")
+    else: 
+        fallback_cols = ["Código Solicitação", "Data Solicitação", "Ocorrências", "Tipo Processo", "Setor", 
+                         "Possível Divisão", "Razão Social", "CPF / CNPJ", "E-mail", "E-mail CC", 
+                         "Docs. Mesclados 1", "Docs. Mesclados 2", "Observação", "Status", "Divisão", 
+                         "GDOC", "Valor Manual", "Servidor", "Data Atendimento", "Data Modificação", 
+                         "Motivo Indeferimento", "Respondido"]
+        empty_series = pd.Series(index=fallback_cols, dtype='object').fillna("")
+    st.session_state.lf_empty_df = empty_series
+
+treated_line_lf = st.session_state.lf_empty_df.copy()
+
+if original_selected_index_lf is not None and 'lf_df' in st.session_state and not st.session_state.lf_df.empty:
+    if original_selected_index_lf < len(st.session_state.lf_df):
+        selected_line_series = st.session_state.lf_df.iloc[original_selected_index_lf]
+        treated_line_lf = selected_line_series.fillna("").copy()
+        st.session_state.selected_index_lf = original_selected_index_lf 
+    else:
+        st.warning("Índice da linha selecionada (original) fora dos limites.")
 
 
-
-#
-# 
-# to ride the storm, and damn the rest, oblivion.
-#
-
-if 'lf_empty_df' not in st.session_state: 
-    selected_line = st.session_state.lf_df.iloc[1].copy()
-    selected_line.iloc[:] = ""
-    st.session_state.lf_empty_df = selected_line.fillna("")
-    treated_line_lf = st.session_state.lf_empty_df
-else:
-    treated_line_lf = st.session_state.lf_empty_df
-
-if selected_row_lf is not None and len(selected_row_lf) > 0:
-    st.session_state.selected_index_lf = int(selected_index_lf[0])
-    selected_line = st.session_state.lf_df.iloc[st.session_state.selected_index_lf]
-    treated_line_lf = selected_line.fillna("")
-
-# Tratamento dos botões do formulário enchedo linguiça
 if 'btn_clear_lf' not in st.session_state:
     st.session_state.btn_clear_lf = False
     st.session_state.disable_file_uploader = True
     st.session_state.disable_btn_save_lf = True
-    #st.session_state.disable_btn_edit_lf = True
     st.session_state.disable_btn_send_lf = True
 
 if st.session_state.btn_clear_lf:
-    treated_line_lf = st.session_state.lf_empty_df
+    treated_line_lf = st.session_state.lf_empty_df.copy()
     st.session_state.btn_clear_lf = False
+    if LF_TABLE_KEY in st.session_state and hasattr(st.session_state[LF_TABLE_KEY], 'selection'):
+         st.session_state[LF_TABLE_KEY].selection.rows = []
+    if MERGED_TABLE_KEY in st.session_state and hasattr(st.session_state[MERGED_TABLE_KEY], 'selection'):
+         st.session_state[MERGED_TABLE_KEY].selection.rows = []
+    st.session_state.sel_merged_lf = pd.DataFrame()
+    st.session_state.last_selected_merged_index = None 
+    original_selected_index_lf = None 
+    st.session_state.selected_index_lf = None 
 
-#
-#
-#
-#
 
 show_expander_2 = False
-if len(treated_line_lf["Código Solicitação"]) > 1:
+if "Código Solicitação" in treated_line_lf and len(str(treated_line_lf.get("Código Solicitação",""))) > 1:
     show_expander_2 = True
 
 with st.expander("Detalhes da solicitação", expanded=show_expander_2):
-    st.write("")
-    with st.form("form_licencas", enter_to_submit=False, border=False, clear_on_submit=True):
+    st.write("") 
+    with st.form("form_licencas", border=False):
         container1, container2 = st.columns(2, gap="large")
         with container1:
-
-            col1, col2, col3, col4, col5 = st.columns([0.3,0.6,1,1,0.4], vertical_alignment="bottom")
+            col1_form, col2_form, col3_form, col4_form, col5_form = st.columns([0.3,0.6,1,1,0.4], vertical_alignment="bottom")
             
-            match treated_line_lf["Respondido"]:
-                case "Sim":
-                    col1.header(":material/check_circle:", anchor=False)
-                    #col1.header("🟢", anchor=False)
-                case "Não":
-                    col1.header(":material/do_not_disturb_on:", anchor=False)
-                    #col1.header("🔴", anchor=False)
-                case _:
-                    col1.header(":material/pending:", anchor=False)
-                    #col1.header("⚪️", anchor=False)
+            status_icon = ":material/pending:" 
+            if "Respondido" in treated_line_lf: 
+                if treated_line_lf.get("Respondido") == "Sim": status_icon = ":material/check_circle:"
+                elif treated_line_lf.get("Respondido") == "Não": status_icon = ":material/do_not_disturb_on:"
+            col1_form.header(status_icon, anchor=False)
 
-            codigo_solicitacao_lf = col2.text_input("Cód. Solicitação", value=treated_line_lf["Código Solicitação"])
-            data_solicitacao_lf = col3.text_input("Data Solicitação", value=treated_line_lf["Data Solicitação"])
-            ocorrencias_lf = col4.text_input("Ocorrências", value=treated_line_lf["Ocorrências"])
+            codigo_solicitacao_lf = col2_form.text_input("Cód. Solicitação", value=treated_line_lf.get("Código Solicitação", ""), key="form_cod_sol")
+            data_solicitacao_lf = col3_form.text_input("Data Solicitação", value=treated_line_lf.get("Data Solicitação", ""), key="form_data_sol")
+            ocorrencias_lf_val = treated_line_lf.get("Ocorrências", "") 
+            ocorrencias_lf_input = col4_form.text_input("Ocorrências", value=ocorrencias_lf_val, key="form_ocorrencias")
 
-            if 'disable_btn_ocorrencias' not in st.session_state:
-                st.session_state.disable_btn_ocorrencias = True
-
-            if treated_line_lf["Ocorrências"] == "":
-                st.session_state.disable_btn_ocorrencias = True
-            else:
-                st.session_state.disable_btn_ocorrencias = False
-
-            btn_ocorrencias = col5.form_submit_button(":material/eye_tracking:", type="secondary",
+            st.session_state.disable_btn_ocorrencias = not bool(ocorrencias_lf_val) 
+            btn_ocorrencias = col5_form.form_submit_button(":material/eye_tracking:", type="secondary",
                                     use_container_width=True, disabled=st.session_state.disable_btn_ocorrencias)
-            
             if btn_ocorrencias:
-                get_ocorrencias(treated_line_lf["CPF / CNPJ"], "lf")
-                btn_ocorrencias = False
+                get_ocorrencias(treated_line_lf.get("CPF / CNPJ", ""), "lf") 
 
-            col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
-            
-            tipo_processo_lf = col1.text_input("Tipo Processo", value=treated_line_lf["Tipo Processo"])
-            tipo_empresa_lf = col2.text_input("Setor", value=treated_line_lf["Setor"])
-            divisao_declarada_lf = col3.text_input("Possível Divisão", value=treated_line_lf["Possível Divisão"])
+            col1_c1_form, col2_c1_form, col3_c1_form = st.columns(3, vertical_alignment="bottom")
+            tipo_processo_lf = col1_c1_form.text_input("Tipo Processo", value=treated_line_lf.get("Tipo Processo", ""),key="form_tipo_proc")
+            tipo_empresa_lf = col2_c1_form.text_input("Setor", value=treated_line_lf.get("Setor", ""), key="form_setor") 
+            divisao_declarada_lf = col3_c1_form.text_input("Possível Divisão", value=treated_line_lf.get("Possível Divisão", ""), key="form_poss_div")
 
-            col1, col2, col3 = st.columns([1.5,1,0.5], vertical_alignment="bottom")
+            col1_c1_2_form, col2_c1_2_form, col3_c1_2_form = st.columns([1.5,1,0.5], vertical_alignment="bottom")
+            cpf_cnpj_val = treated_line_lf.get("CPF / CNPJ", "") 
+            btn_cnpj_lf_disabled = len(str(cpf_cnpj_val)) != 18
 
-            match len(treated_line_lf["CPF / CNPJ"]):
-                case 18:
-                    btn_cnpj_lf_disabled = False
-                case _:
-                    btn_cnpj_lf_disabled = True
-
-            razao_social_lf = col1.text_input("Nome Estab.", value=treated_line_lf["Razão Social"])
-            cpf_cnpj_lf = col2.text_input("CPF / CNPJ", value=treated_line_lf["CPF / CNPJ"])             
-            btn_cnpj_lf = col3.form_submit_button("", use_container_width=True, icon=":material/search:",  disabled=btn_cnpj_lf_disabled)
-
+            razao_social_lf = col1_c1_2_form.text_input("Nome Estab.", value=treated_line_lf.get("Razão Social", ""), key="form_razao_social")
+            cpf_cnpj_lf_input = col2_c1_2_form.text_input("CPF / CNPJ", value=cpf_cnpj_val, key="form_cpf_cnpj")
+            btn_cnpj_lf = col3_c1_2_form.form_submit_button("", use_container_width=True, icon=":material/search:", disabled=btn_cnpj_lf_disabled)
             if btn_cnpj_lf:
-                if len(treated_line_lf["CPF / CNPJ"]) == 18:
-                    get_cnpj(treated_line_lf["CPF / CNPJ"], '', '')
-                else:
-                    st.toast(":orange[Não vai rolar. Desculpe. 🙂‍↔️]")
+                if len(str(cpf_cnpj_val)) == 18: 
+                    get_cnpj(cpf_cnpj_val, '', '')
+                else: st.toast(":orange[CNPJ inválido para busca.]")
 
-
-            col1, col2 = st.columns(2, vertical_alignment="bottom")
-            email1_lf = col1.text_input("E-mail", value=treated_line_lf["E-mail"])
-            email2_lf = col2.text_input("E-mail CC", value=treated_line_lf["E-mail CC"])
-
-            st.write("")
-            col1, col2 = st.columns(2, vertical_alignment="bottom")
-            col_btn = [col1, col2]
-            col_index = 0
-            cabecalho_url = ["Docs. Mesclados 1", "Docs. Mesclados 2"]
-            for col in cabecalho_url:
-                url = treated_line_lf.get(col)
-                if isinstance(url, str) and url.startswith("http"):  # Verifica se a célula tem um URL válido
-                    with col_btn[col_index]:
-                        col_btn[col_index].link_button(f" Abrir {col}", url, icon=":material/link:", use_container_width=True)
-                    col_index = (col_index + 1) % 2
-
-            if len(treated_line_lf["Observação"])>5:
-                observacao_lf = st.text_area("Observação", value=treated_line_lf["Observação"], height=77)
+            col1_c1_3_form, col2_c1_3_form = st.columns(2, vertical_alignment="bottom")
+            email1_lf = col1_c1_3_form.text_input("E-mail", value=treated_line_lf.get("E-mail", ""), key="form_email1")
+            email2_lf = col2_c1_3_form.text_input("E-mail CC", value=treated_line_lf.get("E-mail CC", ""), key="form_email2")
+            
+            st.write("") 
+            col1_c1_4_form, col2_c1_4_form = st.columns(2, vertical_alignment="bottom")
+            col_btn_list_form = [col1_c1_4_form, col2_c1_4_form] 
+            col_idx_form = 0
+            for header_url_key_form in ["Docs. Mesclados 1", "Docs. Mesclados 2"]:
+                url_val_form = treated_line_lf.get(header_url_key_form)
+                if isinstance(url_val_form, str) and url_val_form.startswith("http"):
+                    col_btn_list_form[col_idx_form].link_button(f" Abrir {header_url_key_form}", url_val_form, icon=":material/link:", use_container_width=True)
+                    col_idx_form = (col_idx_form + 1) % 2
+            
+            observacao_lf_val_form = treated_line_lf.get("Observação", "")
+            if len(str(observacao_lf_val_form)) > 0: 
+                observacao_lf_input = st.text_area("Observação", value=observacao_lf_val_form, height=77, key="form_obs") 
+            else:
+                observacao_lf_input = st.text_area("Observação", value="", height=77, key="form_obs_empty") 
 
 
         with container2:
+            col1_c2_form, col2_c2_form, col3_c2_form, col4_c2_form = st.columns(4, vertical_alignment="bottom")
 
-            col1, col2, col3, col4 = st.columns(4, vertical_alignment="bottom")
-
-            #
-            #
-            # tentando tratar o estado dos botões...
-            #
-            #
-            status_index_lf = 3
-
-            match treated_line_lf["Status"]:
-                case 'Passivo':
-                    #st.session_state.status_lf = 'Passivo'
-                    status_index_lf = 0
-                    #st.session_state.disable_btn_edit_lf = True
-                    st.session_state.disable_btn_save_lf = False
-                    st.session_state.disable_btn_send_lf = True
-                    st.session_state.disable_file_uploader = True
-                case 'Deferido':
-                    status_index_lf = 1
-                    st.session_state.status_lf = 'Deferido'
-                    st.session_state.disable_file_uploader = False
-                    #st.session_state.disable_btn_edit_lf = False
-                    st.session_state.disable_btn_save_lf = False
-                    st.session_state.disable_btn_send_lf = False
-                case 'Indeferido':
-                    status_index_lf = 2
-                    st.session_state.status_lf = 'Indeferido'
-                    #st.session_state.disable_btn_edit_lf = False
-                    st.session_state.disable_btn_save_lf = False
-                    st.session_state.disable_btn_send_lf = False
-                    st.session_state.disable_file_uploader = True
-                case _:
-                    status_index_lf = 3
-                    st.session_state.status_lf = ''
-           
-            status_lf = col1.selectbox("Status *", ('Passivo', 'Deferido', 'Indeferido', ''), index=status_index_lf)
+            status_options_form_sel = ['Passivo', 'Deferido', 'Indeferido', ''] 
+            current_status_form_val = treated_line_lf.get("Status", "")
+            status_index_lf_form = status_options_form_sel.index(current_status_form_val) if current_status_form_val in status_options_form_sel else 3
             
-            divisao_index = None
-            match treated_line_lf["Divisão"]:
-                case 'DVSA':
-                    divisao_index = 0
-                case 'DVSE':
-                    divisao_index = 1
-                case 'DVSCEP':
-                    divisao_index = 2
-                case 'DVSDM':
-                    divisao_index = 3
-                case _:
-                    divisao_index = 4
+            _temp_status_for_disable = treated_line_lf.get("Status", "")
+            if _temp_status_for_disable == 'Passivo' or not _temp_status_for_disable:
+                st.session_state.disable_btn_save_lf = False 
+                st.session_state.disable_btn_send_lf = True
+                st.session_state.disable_file_uploader = True
+            elif _temp_status_for_disable == 'Deferido':
+                st.session_state.disable_file_uploader = False
+                st.session_state.disable_btn_save_lf = False
+                st.session_state.disable_btn_send_lf = False
+            elif _temp_status_for_disable == 'Indeferido':
+                st.session_state.disable_file_uploader = True 
+                st.session_state.disable_btn_save_lf = False
+                st.session_state.disable_btn_send_lf = False
+            else: 
+                st.session_state.disable_btn_save_lf = True
+                st.session_state.disable_btn_send_lf = True
+                st.session_state.disable_file_uploader = True
 
-            divisao_lf = col2.selectbox("Divisão *", ('DVSA', 'DVSE', 'DVSCEP', 'DVSDM', ''), index=divisao_index)          
-            gdoc_lf = col3.text_input("GDOC/Ano (xx/25) *", value=treated_line_lf["GDOC"])
+            status_lf_selectbox = col1_c2_form.selectbox("Status *", status_options_form_sel, index=status_index_lf_form, key="form_status_lf_sel")
             
-            match treated_line_lf["Setor"]:
-                case ''| 'Privado':
-                    treated_line_lf["Valor Manual"] = treated_line_lf["Valor Manual"]
-                case _:
-                    treated_line_lf["Valor Manual"] = 'R$ 0,00'
+            divisao_options_form_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', '']
+            current_divisao_form_val = treated_line_lf.get("Divisão", "")
+            divisao_index_form = divisao_options_form_sel.index(current_divisao_form_val) if current_divisao_form_val in divisao_options_form_sel else 4
+            divisao_lf_selectbox = col2_c2_form.selectbox("Divisão *", divisao_options_form_sel, index=divisao_index_form, key="form_divisao_lf_sel")
+            
+            gdoc_lf_input = col3_c2_form.text_input("GDOC/Ano (xx/AA) *", value=treated_line_lf.get("GDOC", ""), key="form_gdoc_lf_input")
+            
+            valor_manual_val_form = treated_line_lf.get("Valor Manual", "R$ 0,00")
+            if treated_line_lf.get("Setor", "") not in ['', 'Privado']: valor_manual_val_form = 'R$ 0,00'
+            valor_manual_lf_input = col4_c2_form.text_input("Valor do DAM *", value=valor_manual_val_form, key="form_valor_manual_lf_input")
 
-            valor_manual_lf = col4.text_input("Valor do DAM *", value=treated_line_lf["Valor Manual"])
+            col1_c2_2_form, col2_c2_2_form, col3_c2_2_form = st.columns(3, vertical_alignment="bottom")
+            servidor_lf_input = col1_c2_2_form.text_input("Servidor", value=treated_line_lf.get("Servidor", st.session_state.get("sessao_servidor", "")), key="form_servidor_lf_input")
+            data_atendimento_lf_val_form = treated_line_lf.get("Data Atendimento", "")
+            data_atendimento_lf_input = col2_c2_2_form.text_input("Data At.", value=data_atendimento_lf_val_form, key="form_data_at_lf_input")
+            data_modificacao_lf_input = col3_c2_2_form.text_input("Data Mod.", value=treated_line_lf.get("Data Modificação", ""), key="form_data_mod_lf_input")
 
-            col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
-           
-            servidor_lf = col1.text_input("Servidor", value=treated_line_lf["Servidor"])
-            data_atendimento_lf = col2.text_input("Data At.", value=treated_line_lf["Data Atendimento"])
-            data_modificacao_lf = col3.text_input("Data Mod.", value=treated_line_lf["Data Modificação"])
-
-            cartao_protocolo_lf = st.file_uploader(
-                "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'], disabled=st.session_state.disable_file_uploader
+            cartao_protocolo_lf_uploader = st.file_uploader(
+                "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'], 
+                disabled=st.session_state.disable_file_uploader, key="form_file_uploader_lf_up"
             )
+            motivo_indeferimento_lf_input = st.text_area("Motivo Indeferimento *", value=treated_line_lf.get("Motivo Indeferimento", ""), height=77, key="form_motivo_ind_lf_input")
 
-            motivo_indeferimento_lf = st.text_area("Motivo Indeferimento *", value=treated_line_lf["Motivo Indeferimento"], height=77)
+            st.write("") 
 
-            st.write("")
+            form_col1_btn, form_col2_btn, form_col3_btn, form_col4_btn, form_col5_btn = st.columns(5, vertical_alignment="bottom", gap='small')
+            btn_clear_lf_form = form_col4_btn.form_submit_button("Limpar", use_container_width=True, icon=":material/ink_eraser:")
+            btn_save_lf_form = form_col5_btn.form_submit_button("Salvar", use_container_width=True, disabled=st.session_state.disable_btn_save_lf, icon=":material/save:", type='primary')
+            btn_send_lf_form = form_col3_btn.form_submit_button("Enviar", use_container_width=True, disabled=st.session_state.disable_btn_send_lf, icon=":material/mail:", type='primary')
+            
+            form_col2_btn.link_button("Checklist", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0",
+                                   use_container_width=True, icon=":material/manage_search:")
+            form_col1_btn.link_button("GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", 
+                                   use_container_width=True, icon=":material/public:")
+            
+            btn_gdoc_webdriver_form = None 
+            if st.session_state.get('auth_user') == 'Daniel':
+                btn_gdoc_webdriver_form = st.form_submit_button('sGDOC', use_container_width=True, icon=":material/smart_toy:")
 
-            # if 'clicou_no_editar' not in st.session_state:
-            #     st.session_state.clicou_no_editar = False
-            
-            # if st.session_state.clicou_no_editar:
-            #     st.session_state.disable_btn_edit_lf = True
-            #     st.session_state.disable_btn_save_lf = False
-            #     st.session_state.clicou_no_editar = False
-                
-            
-            col1, col2, col3, col4, col5 = st.columns(5, vertical_alignment="bottom", gap='small')
-            btn_clear_lf = col4.form_submit_button("Limpar", use_container_width=True, disabled=False, icon=":material/ink_eraser:")
-            btn_save_lf = col5.form_submit_button("Salvar", use_container_width=True, disabled=st.session_state.disable_btn_save_lf, icon=":material/save:", type='primary')
-            btn_send_lf = col3.form_submit_button("Enviar", use_container_width=True, disabled=st.session_state.disable_btn_send_lf, icon=":material/mail:", type='primary')
-            #btn_edit_lf = col2.form_submit_button("Editar", use_container_width=True, disabled=True, icon=":material/edit_note:")
-            btn_checklist = col2.link_button("Checklist", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0",
-                                        use_container_width=True, disabled=False, icon=":material/manage_search:")
-            btn_gdoc_lf = col1.link_button("GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", 
-                                    use_container_width=True, disabled=False, icon=":material/public:")
-            
-            if st.session_state.auth_user == 'Daniel':
-                col1, col2, col3, col4, col5 = st.columns(5, vertical_alignment="bottom", gap='small')
-                btn_gdoc_webdriver = col1.form_submit_button('sGDOC', use_container_width=True, icon=":material/smart_toy:")
-            else:
-                btn_gdoc_webdriver = None          
-            
-            if 'toast_msg_success' not in st.session_state:
-                st.session_state.toast_msg_success = False
 
+            if 'toast_msg_success' not in st.session_state: st.session_state.toast_msg_success = False
             if st.session_state.toast_msg_success:
                 st.toast(f"Dados salvos ✨✨")
                 st.session_state.toast_msg_success = False
 
-            def btn_clear_fn(rerun=bool):
+            def btn_clear_fn_form_action(rerun=bool): 
                 st.session_state.disable_btn_save_lf = True
-                # st.session_state.disable_btn_edit_lf = True
                 st.session_state.disable_btn_send_lf = True
                 st.session_state.disable_file_uploader = True
                 if rerun:       
-                    st.session_state.btn_clear_lf = True
-                    st.session_state.reload_lf_df = True
+                    st.session_state.btn_clear_lf = True 
+                    st.session_state.reload_lf_df = True 
                     st.rerun()
             
-            if btn_clear_lf:    
-                btn_clear_fn(rerun=True)
+            if btn_clear_lf_form:    
+                btn_clear_fn_form_action(rerun=True)
             
-            # if btn_edit_lf:
-            #     st.session_state.close_this_damn_json = True # janelinha json
-            #     st.session_state.clicou_no_editar = True
-            #     st.rerun()
-                
-            if btn_save_lf:     
-                if tipo_processo_lf and  treated_line_lf["Tipo Processo"]:  
-                    divisao_list = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
-                    treated_valor_manual_lf = ''
+            if btn_save_lf_form:     
+                if codigo_solicitacao_lf and tipo_processo_lf: 
+                    divisao_list_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM'] 
+                    treated_valor_manual_save = '' 
+                    if valor_manual_lf_input: 
+                        treated_valor_manual_save = extrair_e_formatar_real(valor_manual_lf_input) 
                     
-                    if valor_manual_lf:
-                        treated_valor_manual_lf = extrair_e_formatar_real(valor_manual_lf)
-                    
-                    if ((status_lf == "Deferido" and validate_gdoc(gdoc_lf, data_solicitacao_lf) and divisao_lf in divisao_list and treated_valor_manual_lf) or 
-                        (status_lf == "Indeferido" and len(motivo_indeferimento_lf) > 10)):
+                    gdoc_is_valid_save = validate_gdoc(gdoc_lf_input, data_solicitacao_lf) 
+
+                    save_condition_deferido = (status_lf_selectbox == "Deferido" and gdoc_is_valid_save and 
+                                               divisao_lf_selectbox in divisao_list_save and 
+                                               bool(isinstance(treated_valor_manual_save, (float, int))))
+                    save_condition_indeferido = (status_lf_selectbox == "Indeferido" and len(motivo_indeferimento_lf_input or "") > 10)
+                    save_condition_passivo = (status_lf_selectbox == "Passivo") 
+
+                    if save_condition_deferido or save_condition_indeferido or save_condition_passivo:
+                        worksheet_save = get_worksheet(2, st.secrets['sh_keys']['geral_major']) 
+                        cell_save = worksheet_save.find(codigo_solicitacao_lf, in_column=1) 
                         
-                        worksheet = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
-                        cell = worksheet.find(codigo_solicitacao_lf, in_column=1)
-                        range_lf = f"O{cell.row}:Y{cell.row}"
-                        
-                        if not worksheet.acell(f'S{cell.row}').value:
-                            data_atendimento_lf = get_current_datetime()
+                        if cell_save:
+                            data_atendimento_to_save = data_atendimento_lf_val_form 
+                            if not worksheet_save.acell(f'S{cell_save.row}').value: 
+                                 data_atendimento_to_save = get_current_datetime() 
+                            
+                            data_modificacao_to_save = get_current_datetime() 
+                            
+                            current_gdoc_link_cartao_save = worksheet_save.acell(f'V{cell_save.row}').value or ""
+                            current_respondido_save = worksheet_save.acell(f'Y{cell_save.row}').value or "Não"
 
-                        data_modificacao_lf = get_current_datetime()
-                        cartao_protocolo_empty = ""
-                        response_lf = "Não"
+                            range_to_update_save = f"P{cell_save.row}:Y{cell_save.row}" 
+                            values_to_update_save = [
+                                str(treated_valor_manual_save) if treated_valor_manual_save is not None else "", 
+                                status_lf_selectbox, servidor_lf_input, data_atendimento_to_save, 
+                                data_modificacao_to_save, motivo_indeferimento_lf_input,
+                                current_gdoc_link_cartao_save, gdoc_lf_input, divisao_lf_selectbox, 
+                                current_respondido_save 
+                            ]
+                            worksheet_save.update(range_to_update_save, [values_to_update_save])
 
-                        # a ordem de save depende diretamente da ordem da tabela. Cuidado!
-                        values = [codigo_solicitacao_lf, treated_valor_manual_lf, status_lf, st.session_state.sessao_servidor, data_atendimento_lf, data_modificacao_lf, motivo_indeferimento_lf,
-                                cartao_protocolo_empty, gdoc_lf, divisao_lf, response_lf]
-                        worksheet.update(range_lf, [values])
-
-                        worksheet.update(range_lf, [values])
-                        st.session_state.load_lf_df = True
-                        st.session_state.toast_msg_success = True
-                        
-                        st.session_state.reload_lf_df = True
-
-                        btn_clear_fn(rerun=True)
-                    else:
-                        if not validate_gdoc(gdoc_lf, data_solicitacao_lf):
-                            ano_atual = datetime.now().year
-                            dois_digitos = ano_atual % 100
-                            st.toast(f"O formato do núm. GDOC deve ser xx/{dois_digitos}.")
+                            st.session_state.reload_lf_df = True 
+                            st.session_state.toast_msg_success = True
+                            btn_clear_fn_form_action(rerun=True) 
                         else:
-                            st.toast("Caiu no dorge do else en 460")
+                            st.error(f"Código de Solicitação '{codigo_solicitacao_lf}' não encontrado na planilha para salvar.")
+                    else: 
+                        if status_lf_selectbox == "Deferido":
+                            if not gdoc_is_valid_save: st.toast(f"O formato do núm. GDOC deve ser xx/{datetime.datetime.now().strftime('%y')}.")
+                            elif not (divisao_lf_selectbox in divisao_list_save): st.toast("Divisão inválida para Deferimento.")
+                            elif not (isinstance(treated_valor_manual_save, (float, int))): st.toast("Valor do DAM é obrigatório e numérico para Deferimento.")
+                        elif status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10):
+                            st.toast("Motivo do indeferimento muito curto.")
+                        else: st.toast("Erro: Verifique os campos obrigatórios para o status selecionado.")
                 else:
-                    st.toast("Erro. Preencha todos os campos obrigatórios.")
+                    st.toast("Erro. Código da Solicitação e Tipo de Processo são obrigatórios.")
         
-            # enviar email
+            if 'is_email_sended_lf' not in st.session_state: st.session_state.is_email_sended_lf = False
             
-            if 'is_email_sended_lf' not in st.session_state:
-                st.session_state.is_email_sended_lf = False
-            
-            def is_email_sended():
-                worksheet = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
-                cell = worksheet.find(codigo_solicitacao_lf, in_column=1)
-                range_lf = f"Y{cell.row}"
-                value = "Sim"
-                worksheet.update(range_lf, value)
-                st.session_state.load_lf_df = True
-                st.session_state.is_email_sended_lf = False
-                btn_clear_fn(rerun=True)
+            def mark_email_as_sent_form_action(): 
+                worksheet_email = get_worksheet(2, st.secrets['sh_keys']['geral_major']) 
+                cell_email = worksheet_email.find(codigo_solicitacao_lf, in_column=1)  
+                if cell_email:
+                    link_do_cartao_gdrive = st.session_state.get("gdrive_link_do_cartao", "")
+                    worksheet_email.update_acell(f'V{cell_email.row}', link_do_cartao_gdrive) 
+                    worksheet_email.update_acell(f'Y{cell_email.row}', "Sim") 
 
-            def send_mail():
-                email_licenciamento(
-                    kw_status = status_lf,
-                    kw_gdoc = gdoc_lf,
-                    kd_divisao = divisao_lf,
-                    kw_protocolo = codigo_solicitacao_lf,
-                    kw_data_sol = data_solicitacao_lf,
-                    kw_tipo_proc = f'Licenciamento Sanitário ({tipo_processo_lf})',
-                    kw_razao_social = razao_social_lf,
-                    kw_cpf_cnpj = cpf_cnpj_lf,
-                    kw_cartao_protocolo = cartao_protocolo_lf,
-                    kw_email1 = email1_lf,
-                    kw_email2 = email2_lf,
-                    kw_motivo_indeferimento = motivo_indeferimento_lf,
-                    )
-            
-            if btn_send_lf:
-                # 
-                # refazer essa bagunça depois...
-                #
-                if tipo_processo_lf and treated_line_lf["Tipo Processo"]:
-                    if status_lf == "Deferido" and cartao_protocolo_lf is None:
-                        st.toast(":red[Falta o cartão do protocolo?]")
-                    else:
-                        divisao_list = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
-                        if (divisao_lf in divisao_list and
-                            (status_lf == "Deferido" and validate_gdoc(gdoc_lf, data_solicitacao_lf) and cartao_protocolo_lf and validate_protocolo(cartao_protocolo_lf.name, gdoc_lf) and valor_manual_lf) or 
-                            (status_lf == "Indeferido" and len(motivo_indeferimento_lf) > 10)):
-                                st.toast(f"Tentando responder à '{codigo_solicitacao_lf}'. Aguarde...")
-                                send_mail()
-                                if st.session_state.is_email_sended_lf:
-                                    is_email_sended()
-                                    st.session_state.is_email_sended_lf = False
-                        else: 
-                            if cartao_protocolo_lf is None or not validate_protocolo(cartao_protocolo_lf.name, gdoc_lf):
-                                st.toast(":red[Tem certeza que o **cartão do protocolo** ou o **nº do processo** está correto?]")
+                st.session_state.reload_lf_df = True
+                st.session_state.is_email_sended_lf = False 
+                st.session_state.pop("gdrive_link_do_cartao", None) 
+                btn_clear_fn_form_action(rerun=True) 
 
-                            if not validate_gdoc(gdoc_lf, data_solicitacao_lf):
-                                ano_atual = datetime.now().year
-                                dois_digitos = ano_atual % 100
-                                st.toast(f"O formato do núm. GDOC deve ser xx/{dois_digitos}.")
-                                                
+            def send_mail_form_action(): 
+                email_licenciamento( 
+                    kw_status=status_lf_selectbox, kw_gdoc=gdoc_lf_input, kd_divisao=divisao_lf_selectbox,
+                    kw_protocolo=codigo_solicitacao_lf, kw_data_sol=data_solicitacao_lf,
+                    kw_tipo_proc=f'Licenciamento Sanitário ({tipo_processo_lf})', 
+                    kw_razao_social=razao_social_lf, 
+                    kw_cpf_cnpj=cpf_cnpj_lf_input, 
+                    kw_cartao_protocolo=cartao_protocolo_lf_uploader, 
+                    kw_email1=email1_lf, kw_email2=email2_lf, 
+                    kw_motivo_indeferimento=motivo_indeferimento_lf_input,
+                )
+            
+            if btn_send_lf_form:
+                if codigo_solicitacao_lf and tipo_processo_lf: 
+                    valid_gdoc_for_send_act = validate_gdoc(gdoc_lf_input, data_solicitacao_lf) 
+                    
+                    valid_protocol_file_for_send_act = False
+                    if cartao_protocolo_lf_uploader is not None: 
+                         valid_protocol_file_for_send_act = validate_protocolo(cartao_protocolo_lf_uploader.name, gdoc_lf_input)
+
+                    valor_manual_ok_for_send_act = False
+                    if valor_manual_lf_input:
+                        try:
+                            val_send = extrair_e_formatar_real(valor_manual_lf_input)
+                            if isinstance(val_send, (float, int)): valor_manual_ok_for_send_act = True
+                        except: valor_manual_ok_for_send_act = False
+                    
+                    send_cond_deferido_act = (status_lf_selectbox == "Deferido" and 
+                                               divisao_lf_selectbox in ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM'] and
+                                               valid_gdoc_for_send_act and cartao_protocolo_lf_uploader is not None and 
+                                               valid_protocol_file_for_send_act and valor_manual_ok_for_send_act)
+                    send_cond_indeferido_act = (status_lf_selectbox == "Indeferido" and len(motivo_indeferimento_lf_input or "") > 10)
+
+                    if send_cond_deferido_act or send_cond_indeferido_act:
+                        st.toast(f"Tentando responder à '{codigo_solicitacao_lf}'. Aguarde...")
+                        send_mail_form_action() 
+                        if st.session_state.is_email_sended_lf: 
+                            mark_email_as_sent_form_action()
+                    else: 
+                        if status_lf_selectbox == "Deferido":
+                            if not (divisao_lf_selectbox in ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']): st.toast(":red[Divisão inválida para envio.]")
+                            if not valid_gdoc_for_send_act: st.toast(f":red[Formato do GDOC inválido (xx/{datetime.datetime.now().strftime('%y')})]")
+                            if cartao_protocolo_lf_uploader is None: st.toast(":red[Cartão do protocolo não anexado.]")
+                            elif not valid_protocol_file_for_send_act: st.toast(":red[Nome do arquivo do protocolo não corresponde ao GDOC.]")
+                            if not valor_manual_ok_for_send_act: st.toast(":red[Valor do DAM não preenchido ou inválido.]")
+                        if status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10):
+                            st.toast(":red[Motivo do indeferimento muito curto para envio.]")
                 else:
-                    st.toast(":red[Erro. Preencha todos os campos obrigatórios.]")
+                    st.toast(":red[Erro. Código da Solicitação e Tipo de Processo são obrigatórios para envio.]")
             
-
-            # automação gdoc
-            if btn_gdoc_webdriver:
-                if treated_line_lf["CPF / CNPJ"] and divisao_lf:
-                    selenium_proc_gdoc(
-                        kw_cpf_cnpj = treated_line_lf["CPF / CNPJ"],
-                        kw_razao_social = treated_line_lf["Razão Social"],
-                        kw_email1 = treated_line_lf["E-mail"],
-                        kw_email2 = treated_line_lf["E-mail CC"],
-                        kw_tipoProc = treated_line_lf["Tipo Processo"],
-                        kw_divisao = divisao_lf,
-                        kw_docs1 = treated_line_lf["Docs. Mesclados 1"],
-                        kw_docs2 = treated_line_lf["Docs. Mesclados 2"],
-                        kw_obs = treated_line_lf["Observação"]
+            if btn_gdoc_webdriver_form: 
+                if cpf_cnpj_lf_input and divisao_lf_selectbox: 
+                    selenium_proc_gdoc( 
+                        kw_cpf_cnpj = cpf_cnpj_lf_input, kw_razao_social = razao_social_lf,
+                        kw_email1 = email1_lf, kw_email2 = email2_lf,
+                        kw_tipoProc = tipo_processo_lf, kw_divisao = divisao_lf_selectbox,
+                        kw_docs1 = treated_line_lf.get("Docs. Mesclados 1", ""), 
+                        kw_docs2 = treated_line_lf.get("Docs. Mesclados 2", ""),
+                        kw_obs = observacao_lf_input 
                     )
                 else:
-                    st.toast(":red[**Carregue um processo e escolha a divisão.**]")
-
-                st.toast('zé da manga')
-
+                    st.toast(":red[**CPF/CNPJ e Divisão são necessários para sGDOC.** Preencha-os no formulário.]")

@@ -1469,7 +1469,7 @@ def pesquisa_processo_digitacao(n_proc, ano_proc):
             st.toast("Implemente os outros anos, major...")
 
 
-@st.dialog("Detalhes do Processo", width="large")
+# @st.dialog("Detalhes do Processo", width="large")
 def show_dadosProcesso(df):
     df_conv = df.to_json(orient="records", indent=2)
     return st.json(df_conv)
