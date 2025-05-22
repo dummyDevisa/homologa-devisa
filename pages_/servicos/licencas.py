@@ -5,7 +5,7 @@ from webdriver_gdoc import *
 import re
 import datetime
 
-# ... (código inicial) ...
+# ... (código inicial e funções auxiliares como load_lf_df_cached, etc., permanecem os mesmos) ...
 st.header("Licença de Funcionamento", anchor=False)
 
 @st.cache_data(ttl=300, show_spinner="Carregando banco de LFs...")
@@ -17,6 +17,9 @@ def load_lf_df_cached():
 
 if 'reload_lf_df' not in st.session_state:
     st.session_state.reload_lf_df = False
+if 'reload_tx_df' not in st.session_state:
+    st.session_state.reload_tx_df = False
+
 
 if 'lf_df' not in st.session_state or st.session_state.reload_lf_df:
     lf_df_aux = load_lf_df_cached()
@@ -108,23 +111,27 @@ with st.expander("Registro de Solicitações", expanded=True):
             today = datetime.date.today()
             thirty_days_ago = today - datetime.timedelta(days=30)
             min_date_selectable = datetime.date(2020, 1, 1)
-            if 'date_input_lf_key' not in st.session_state:
-                st.session_state.date_input_lf_key = (thirty_days_ago + datetime.timedelta(days=1), today)
+            
+            # Simplificação do st.date_input
+            DATE_INPUT_KEY = "date_input_lf_range_key" # Chave única para o widget
+            if DATE_INPUT_KEY not in st.session_state:
+                st.session_state[DATE_INPUT_KEY] = (thirty_days_ago + datetime.timedelta(days=1), today)
 
-            range_dates_widget_val = st.date_input(
+            # O widget usa e atualiza st.session_state[DATE_INPUT_KEY] diretamente
+            # Se for preciso reagir à mudança aqui, um on_change callback pode ser usado.
+            st.date_input(
                 "Intervalo de Datas",
-                value=st.session_state.date_input_lf_key,
                 min_value=min_date_selectable,
                 max_value=today,
                 format="DD/MM/YYYY",
                 label_visibility='collapsed',
-                key="date_input_lf_key_widget"
+                key=DATE_INPUT_KEY # Passa a chave única
             )
-            if range_dates_widget_val != st.session_state.date_input_lf_key:
-                 st.session_state.date_input_lf_key = range_dates_widget_val
+            current_range_dates = st.session_state[DATE_INPUT_KEY]
 
-            if isinstance(st.session_state.date_input_lf_key, (tuple, list)) and len(st.session_state.date_input_lf_key) == 2:
-                data_inicio, data_fim = st.session_state.date_input_lf_key
+
+            if isinstance(current_range_dates, (tuple, list)) and len(current_range_dates) == 2:
+                data_inicio, data_fim = current_range_dates
             else:
                 st.toast("🛑 :red[**Intervalo de datas inválido. Usando data de hoje.**]")
                 data_inicio = data_fim = today
@@ -137,9 +144,9 @@ with st.expander("Registro de Solicitações", expanded=True):
             df_geral_source['Status'] = df_geral_source['Status'].replace("", "Passivo")
             
             if status_para_filtragem:
-                df_geral = df_geral_source[df_geral_source['Status'] == status_para_filtragem].copy() # Tornar cópia se filtrado
+                df_geral = df_geral_source[df_geral_source['Status'] == status_para_filtragem].copy()
             else:
-                df_geral = df_geral_source # Já é uma cópia de st.session_state.lf_df
+                df_geral = df_geral_source
 
             if st.session_state.checkbox_minhas_lf:
                 df_geral = df_geral[df_geral['Servidor'] == st.session_state.get("sessao_servidor")]
@@ -147,7 +154,6 @@ with st.expander("Registro de Solicitações", expanded=True):
                 df_geral = df_geral[df_geral['Respondido'] == "Não"]
 
             if data_inicio and data_fim and not df_geral.empty and 'Data_Solicitacao_dt' in df_geral.columns:
-                 # CORREÇÃO: Usar .loc para a atribuição para evitar SettingWithCopyWarning
                  df_geral.loc[:, 'Data_Solicitacao_dt'] = pd.to_datetime(df_geral['Data_Solicitacao_dt'], errors='coerce')
                  
                  df_geral = df_geral[
@@ -163,8 +169,9 @@ with st.expander("Registro de Solicitações", expanded=True):
                 st.session_state.cpf_cnpj_col_name_in_lf_filtrado = None
                 if "CPF / CNPJ" in lf_df_filtrado.columns:
                     st.session_state.cpf_cnpj_col_name_in_lf_filtrado = "CPF / CNPJ"
-                elif len(actual_indices) > 3 and actual_indices[3] < len(df_geral.columns) and df_geral.columns[actual_indices[3]] == "CPF / CNPJ":
+                elif len(actual_indices) > 3 and actual_indices[3] < len(df_geral.columns) and df_geral.columns[cols_to_display_indices[3]] == "CPF / CNPJ":
                     st.session_state.cpf_cnpj_col_name_in_lf_filtrado = "CPF / CNPJ"
+
             except IndexError as e:
                 st.error(f"Erro ao selecionar colunas para a tabela de solicitações: {e}.")
                 lf_df_filtrado = pd.DataFrame()
@@ -199,20 +206,26 @@ with st.expander("Registro de Solicitações", expanded=True):
             lf_df_filtrado, key=LF_TABLE_KEY, on_select="rerun", selection_mode="single-row",
             column_config=column_config_lf, height=224, use_container_width=True, hide_index=True
         )
+        
+        # Lógica do Badge modificada
         total_exibido_lf = len(lf_df_filtrado)
         badge_text_lf = f"Exibindo: {total_exibido_lf}"
         if 'lf_df' in st.session_state and st.session_state.lf_df is not None and not st.session_state.lf_df.empty:
             base_df_for_badge_lf = st.session_state.lf_df.copy()
             base_df_for_badge_lf['Status'] = base_df_for_badge_lf['Status'].replace("", "Passivo")
             total_passivos_badge_lf = len(base_df_for_badge_lf[base_df_for_badge_lf['Status'] == 'Passivo'])
+            
             if "Respondido" in base_df_for_badge_lf.columns:
                 total_nao_respondidos_badge_lf = len(base_df_for_badge_lf[base_df_for_badge_lf['Respondido'] == 'Não'])
-                badge_text_lf += f" | Total Passivos: {total_passivos_badge_lf} | Não Resp.: {total_nao_respondidos_badge_lf}"
+                # Novo formato do badge
+                badge_text_lf += f"   ⬗   Passivo: {total_passivos_badge_lf}   ⬗   Não respondidos: {total_nao_respondidos_badge_lf}"
             else:
-                badge_text_lf += f" | Total Passivos: {total_passivos_badge_lf} | Não Resp.: N/A"
+                badge_text_lf += f"   ⬗   Passivo: {total_passivos_badge_lf}   ⬗   Não respondidos: N/A"
+            
             st.badge(badge_text_lf, color="blue")
         else:
-            st.badge(f"Exibindo: {total_exibido_lf} | Totais Gerais: N/A", color="grey")
+            st.badge(f"Exibindo: {total_exibido_lf}   ⬗   Totais Gerais: N/A", color="grey")
+
 
         selected_row_lf_df = pd.DataFrame()
         original_selected_index_lf = None
@@ -420,18 +433,23 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
     with st.form("form_licencas", border=False):
         container1, container2 = st.columns(2, gap="large")
         with container1:
-            col1_form, col2_form, col3_form, col4_form, col5_form = st.columns([0.3,0.6,1,1,0.4], vertical_alignment="bottom")
+            col1_form, col2_form, col3_form, col4_form = st.columns([0.3, 0.6, 1, 1.4], vertical_alignment="bottom")
             status_icon = ":material/pending:"
             if "Respondido" in treated_line_lf:
                 if treated_line_lf.get("Respondido") == "Sim": status_icon = ":material/check_circle:"
                 elif treated_line_lf.get("Respondido") == "Não": status_icon = ":material/do_not_disturb_on:"
             col1_form.header(status_icon, anchor=False)
-            codigo_solicitacao_lf = col2_form.text_input("Cód. Solicitação", value=treated_line_lf.get("Código Solicitação", ""), key="form_cod_sol")
+            codigo_solicitacao_lf_form_input = col2_form.text_input("Cód. Solicitação", value=treated_line_lf.get("Código Solicitação", ""), key="form_cod_sol_input")
             data_solicitacao_lf = col3_form.text_input("Data Solicitação", value=treated_line_lf.get("Data Solicitação", ""), key="form_data_sol")
+            
             ocorrencias_lf_val = treated_line_lf.get("Ocorrências", "")
-            ocorrencias_lf_input = col4_form.text_input("Ocorrências", value=ocorrencias_lf_val, key="form_ocorrencias")
-            btn_ocorrencias = col5_form.form_submit_button("👁️", type="secondary", use_container_width=True, disabled=not bool(ocorrencias_lf_val), help="Ver Ocorrências")
-            if btn_ocorrencias: get_ocorrencias(treated_line_lf.get("CPF / CNPJ", ""), "lf")
+            btn_ocorrencias_label = f"{ocorrencias_lf_val} 👁️" if ocorrencias_lf_val else "Ocorrências 👁️"
+            btn_ocorrencias_disabled = not bool(ocorrencias_lf_val)
+            btn_ocorrencias = col4_form.form_submit_button(btn_ocorrencias_label, type="primary", use_container_width=True, disabled=btn_ocorrencias_disabled, help="Ver Ocorrências")
+            
+            if btn_ocorrencias: 
+                get_ocorrencias(treated_line_lf.get("CPF / CNPJ", ""), "lf")
+
             col1_c1_form, col2_c1_form, col3_c1_form = st.columns(3, vertical_alignment="bottom")
             tipo_processo_lf = col1_c1_form.text_input("Tipo Processo", value=treated_line_lf.get("Tipo Processo", ""),key="form_tipo_proc")
             tipo_empresa_lf = col2_c1_form.text_input("Setor", value=treated_line_lf.get("Setor", ""), key="form_setor")
@@ -477,7 +495,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             if treated_line_lf.get("Setor", "") not in ['', 'Privado']: valor_manual_val_form = 'R$ 0,00'
             valor_manual_lf_input = col4_c2_form.text_input("Valor do DAM *", value=valor_manual_val_form, key="form_valor_manual_lf_input")
             col1_c2_2_form, col2_c2_2_form, col3_c2_2_form = st.columns(3, vertical_alignment="bottom")
-            servidor_lf_input = col1_c2_2_form.text_input("Servidor", value=treated_line_lf.get("Servidor", st.session_state.get("sessao_servidor", "")), key="form_servidor_lf_input")
+            servidor_lf_input_form = col1_c2_2_form.text_input("Servidor", value=treated_line_lf.get("Servidor", st.session_state.get("sessao_servidor", "")), key="form_servidor_lf_input_display") 
             data_atendimento_lf_val_form = treated_line_lf.get("Data Atendimento", "")
             data_atendimento_lf_input = col2_c2_2_form.text_input("Data At.", value=data_atendimento_lf_val_form, key="form_data_at_lf_input")
             data_modificacao_lf_input = col3_c2_2_form.text_input("Data Mod.", value=treated_line_lf.get("Data Modificação", ""), key="form_data_mod_lf_input")
@@ -494,67 +512,162 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             if st.session_state.get('auth_user') == 'Daniel': btn_gdoc_webdriver_form = st.form_submit_button('🤖 sGDOC', use_container_width=True)
             if 'toast_msg_success' not in st.session_state: st.session_state.toast_msg_success = False
             if st.session_state.toast_msg_success: st.toast(f"Dados salvos ✨✨"); st.session_state.toast_msg_success = False
+            
             def btn_clear_fn_form_action(rerun=True):
-                st.session_state.btn_clear_lf = True; st.session_state.reload_lf_df = True
+                st.session_state.btn_clear_lf = True
+                st.session_state.reload_lf_df = True
+                load_lf_df_cached.clear()
                 if rerun: st.rerun()
+            
             if btn_clear_lf_form: btn_clear_fn_form_action(rerun=True)
+            
             if btn_save_lf_form:
-                if codigo_solicitacao_lf and tipo_processo_lf:
-                    divisao_list_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
-                    treated_valor_manual_save = extrair_e_formatar_real(valor_manual_lf_input) if valor_manual_lf_input else ''
-                    gdoc_is_valid_save = validate_gdoc(gdoc_lf_input, data_solicitacao_lf)
-                    save_cond_deferido = (status_lf_selectbox == "Deferido" and gdoc_is_valid_save and divisao_lf_selectbox in divisao_list_save and (isinstance(treated_valor_manual_save, (float, int)) and treated_valor_manual_save > 0))
-                    save_cond_indeferido = (status_lf_selectbox == "Indeferido" and len(motivo_indeferimento_lf_input or "") > 10)
-                    save_cond_passivo = (status_lf_selectbox == "Passivo")
-                    if save_cond_deferido or save_cond_indeferido or save_cond_passivo:
-                        worksheet_save = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
-                        cell_save = worksheet_save.find(codigo_solicitacao_lf, in_column=1)
-                        if cell_save:
-                            data_atendimento_to_save = data_atendimento_lf_val_form
-                            if not worksheet_save.acell(f'S{cell_save.row}').value: data_atendimento_to_save = get_current_datetime()
-                            data_modificacao_to_save = get_current_datetime()
-                            current_gdoc_link_cartao_save = worksheet_save.acell(f'V{cell_save.row}').value or ""
-                            current_respondido_save = worksheet_save.acell(f'Y{cell_save.row}').value or "Não"
-                            values_to_update_save = [str(treated_valor_manual_save) if treated_valor_manual_save is not None else "", status_lf_selectbox, servidor_lf_input, data_atendimento_to_save, data_modificacao_to_save, motivo_indeferimento_lf_input, current_gdoc_link_cartao_save, divisao_lf_selectbox, gdoc_lf_input, current_respondido_save]
-                            range_to_update_save = f"P{cell_save.row}:Y{cell_save.row}"
-                            worksheet_save.update(range_to_update_save, [values_to_update_save])
-                            st.session_state.reload_lf_df = True; st.session_state.toast_msg_success = True
-                            btn_clear_fn_form_action(rerun=True)
-                        else: st.error(f"Código '{codigo_solicitacao_lf}' não encontrado para salvar.")
-                    else:
-                        if status_lf_selectbox == "Deferido":
-                            if not gdoc_is_valid_save: st.toast(f"GDOC deve ser xx/AA (ex: {datetime.datetime.now().strftime('%y')}).")
-                            elif not (divisao_lf_selectbox in divisao_list_save): st.toast("Divisão inválida para Deferimento.")
-                            elif not ((isinstance(treated_valor_manual_save, (float, int)) and treated_valor_manual_save > 0)): st.toast("Valor do DAM é obrigatório, numérico e > 0 para Deferimento.")
-                        elif status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10): st.toast("Motivo do indeferimento muito curto.")
-                else: st.toast("Erro. Código da Solicitação e Tipo de Processo são obrigatórios.")
+                if codigo_solicitacao_lf_form_input and tipo_processo_lf:
+                    with st.spinner("Salvando dados, aguarde..."):
+                        divisao_list_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
+                        
+                        string_formatada_dam_save = extrair_e_formatar_real(valor_manual_lf_input)
+                        valor_numerico_convertido_dam_save = None
+                        cond_valor_dam_ok_para_deferido_save = False
+
+                        if string_formatada_dam_save and isinstance(string_formatada_dam_save, str) and string_formatada_dam_save.strip() != "":
+                            try:
+                                str_para_float = string_formatada_dam_save.replace("R$", "").strip()
+                                if '.' in str_para_float and ',' in str_para_float:
+                                    str_para_float = str_para_float.replace('.', '').replace(',', '.')
+                                elif ',' in str_para_float:
+                                    str_para_float = str_para_float.replace(',', '.')
+                                valor_numerico_convertido_dam_save = float(str_para_float)
+                                if valor_numerico_convertido_dam_save >= 0:
+                                    cond_valor_dam_ok_para_deferido_save = True
+                            except ValueError:
+                                pass 
+                        
+                        gdoc_is_valid_save = validate_gdoc(gdoc_lf_input, data_solicitacao_lf)
+
+                        save_condition_deferido = (status_lf_selectbox == "Deferido" and 
+                                                   gdoc_is_valid_save and 
+                                                   divisao_lf_selectbox in divisao_list_save and 
+                                                   cond_valor_dam_ok_para_deferido_save)
+                        save_condition_indeferido = (status_lf_selectbox == "Indeferido" and len(motivo_indeferimento_lf_input or "") > 10)
+                        save_condition_passivo = (status_lf_selectbox == "Passivo")
+
+                        if save_condition_deferido or save_condition_indeferido or save_condition_passivo:
+                            worksheet_save = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
+                            cell_save = worksheet_save.find(codigo_solicitacao_lf_form_input, in_column=1) 
+                            
+                            if cell_save:
+                                data_atendimento_to_save = data_atendimento_lf_val_form
+                                if not worksheet_save.acell(f'S{cell_save.row}').value:
+                                     data_atendimento_to_save = get_current_datetime()
+                                
+                                data_modificacao_to_save = get_current_datetime()
+                                current_gdoc_link_cartao_save = worksheet_save.acell(f'V{cell_save.row}').value or ""
+                                current_respondido_save = worksheet_save.acell(f'Y{cell_save.row}').value or "Não"
+                                
+                                valor_dam_para_planilha = string_formatada_dam_save if string_formatada_dam_save else valor_manual_lf_input
+                                if status_lf_selectbox != "Deferido" and not string_formatada_dam_save:
+                                    valor_dam_para_planilha = valor_manual_lf_input
+                                elif status_lf_selectbox == "Deferido" and not cond_valor_dam_ok_para_deferido_save:
+                                    valor_dam_para_planilha = valor_manual_lf_input
+                                
+                                servidor_a_salvar = st.session_state.get("sessao_servidor", "")
+
+                                values_to_update_save = [
+                                    codigo_solicitacao_lf_form_input,
+                                    valor_dam_para_planilha,
+                                    status_lf_selectbox,
+                                    servidor_a_salvar,
+                                    data_atendimento_to_save,
+                                    data_modificacao_to_save,
+                                    motivo_indeferimento_lf_input,
+                                    current_gdoc_link_cartao_save,
+                                    gdoc_lf_input, 
+                                    divisao_lf_selectbox,
+                                    current_respondido_save
+                                ]
+                                range_to_update_save = f"O{cell_save.row}:Y{cell_save.row}"
+                                worksheet_save.update(range_name=range_to_update_save, values=[values_to_update_save])
+
+                                st.session_state.reload_lf_df = True
+                                if status_lf_selectbox in ["Deferido", "Indeferido"]:
+                                    st.session_state.reload_tx_df = True
+                                st.session_state.toast_msg_success = True
+                                btn_clear_fn_form_action(rerun=True) 
+                            else:
+                                st.error(f"Código de Solicitação '{codigo_solicitacao_lf_form_input}' não encontrado na planilha para salvar.")
+                        else: 
+                            if status_lf_selectbox == "Deferido":
+                                if not gdoc_is_valid_save: st.toast(f"GDOC deve ser xx/AA (ex: {datetime.datetime.now().strftime('%y')}).")
+                                elif not (divisao_lf_selectbox in divisao_list_save): st.toast("Divisão inválida para Deferimento.")
+                                elif not cond_valor_dam_ok_para_deferido_save:
+                                    st.toast("Para Deferimento, o Valor do DAM é obrigatório e deve ser um valor monetário válido (ex: R$ 0,00 ou 150,25).")
+                            elif status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10): 
+                                st.toast("Motivo do indeferimento muito curto.")
+                else:
+                    st.toast("Erro. Código da Solicitação e Tipo de Processo são obrigatórios.")
+            
             if 'is_email_sended_lf' not in st.session_state: st.session_state.is_email_sended_lf = False
+            
             def mark_email_as_sent_form_action():
                 worksheet_email = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
-                cell_email = worksheet_email.find(codigo_solicitacao_lf, in_column=1)
+                cell_email = worksheet_email.find(codigo_solicitacao_lf_form_input, in_column=1) 
                 if cell_email:
                     link_do_cartao_gdrive = st.session_state.get("gdrive_link_do_cartao", "")
-                    if link_do_cartao_gdrive: worksheet_email.update_acell(f'V{cell_email.row}', link_do_cartao_gdrive)
+                    if link_do_cartao_gdrive: 
+                        worksheet_email.update_acell(f'V{cell_email.row}', link_do_cartao_gdrive)
                     worksheet_email.update_acell(f'Y{cell_email.row}', "Sim")
-                st.session_state.reload_lf_df = True; st.session_state.is_email_sended_lf = False
+                st.session_state.reload_lf_df = True
+                if status_lf_selectbox in ["Deferido", "Indeferido"]:
+                    st.session_state.reload_tx_df = True
+                load_lf_df_cached.clear() 
+                st.session_state.is_email_sended_lf = False
                 st.session_state.pop("gdrive_link_do_cartao", None); btn_clear_fn_form_action(rerun=True)
+            
             def send_mail_form_action():
-                email_licenciamento(kw_status=status_lf_selectbox, kw_gdoc=gdoc_lf_input, kd_divisao=divisao_lf_selectbox, kw_protocolo=codigo_solicitacao_lf, kw_data_sol=data_solicitacao_lf, kw_tipo_proc=f'Licenciamento Sanitário ({tipo_processo_lf})', kw_razao_social=razao_social_lf, kw_cpf_cnpj=cpf_cnpj_lf_input, kw_cartao_protocolo=cartao_protocolo_lf_uploader, kw_email1=email1_lf, kw_email2=email2_lf, kw_motivo_indeferimento=motivo_indeferimento_lf_input)
+                email_licenciamento(
+                    kw_status=status_lf_selectbox, kw_gdoc=gdoc_lf_input, kd_divisao=divisao_lf_selectbox, 
+                    kw_protocolo=codigo_solicitacao_lf_form_input, 
+                    kw_data_sol=data_solicitacao_lf, 
+                    kw_tipo_proc=f'Licenciamento Sanitário ({tipo_processo_lf})', 
+                    kw_razao_social=razao_social_lf, kw_cpf_cnpj=cpf_cnpj_lf_input, 
+                    kw_cartao_protocolo=cartao_protocolo_lf_uploader, 
+                    kw_email1=email1_lf, kw_email2=email2_lf, 
+                    kw_motivo_indeferimento=motivo_indeferimento_lf_input
+                )
+            
             if btn_send_lf_form:
-                if codigo_solicitacao_lf and tipo_processo_lf:
+                if codigo_solicitacao_lf_form_input and tipo_processo_lf:
                     valid_gdoc_for_send_act = validate_gdoc(gdoc_lf_input, data_solicitacao_lf)
                     valid_protocol_file_for_send_act = False
-                    if cartao_protocolo_lf_uploader is not None: valid_protocol_file_for_send_act = validate_protocolo(cartao_protocolo_lf_uploader.name, gdoc_lf_input)
+                    if cartao_protocolo_lf_uploader is not None: 
+                        valid_protocol_file_for_send_act = validate_protocolo(cartao_protocolo_lf_uploader.name, gdoc_lf_input)
+                    
                     valor_manual_ok_for_send_act = False
-                    if valor_manual_lf_input:
-                        try:
-                            val_send = extrair_e_formatar_real(valor_manual_lf_input)
-                            if isinstance(val_send, (float, int)) and val_send > 0: valor_manual_ok_for_send_act = True
-                        except: valor_manual_ok_for_send_act = False
-                    send_cond_deferido_act = (status_lf_selectbox == "Deferido" and divisao_lf_selectbox in ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM'] and valid_gdoc_for_send_act and cartao_protocolo_lf_uploader is not None and valid_protocol_file_for_send_act and valor_manual_ok_for_send_act)
+                    if status_lf_selectbox == "Deferido":
+                        string_formatada_dam_send = extrair_e_formatar_real(valor_manual_lf_input)
+                        if string_formatada_dam_send and isinstance(string_formatada_dam_send, str) and string_formatada_dam_send.strip() != "":
+                            try:
+                                str_para_float_send = string_formatada_dam_send.replace("R$", "").strip()
+                                if '.' in str_para_float_send and ',' in str_para_float_send:
+                                    str_para_float_send = str_para_float_send.replace('.', '').replace(',', '.')
+                                elif ',' in str_para_float_send:
+                                    str_para_float_send = str_para_float_send.replace(',', '.')
+                                
+                                valor_numerico_convertido_dam_send = float(str_para_float_send)
+                                if valor_numerico_convertido_dam_send >= 0:
+                                    valor_manual_ok_for_send_act = True
+                            except ValueError:
+                                pass
+                    
+                    send_cond_deferido_act = (status_lf_selectbox == "Deferido" and 
+                                               divisao_lf_selectbox in ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM'] and 
+                                               valid_gdoc_for_send_act and cartao_protocolo_lf_uploader is not None and 
+                                               valid_protocol_file_for_send_act and valor_manual_ok_for_send_act)
                     send_cond_indeferido_act = (status_lf_selectbox == "Indeferido" and len(motivo_indeferimento_lf_input or "") > 10)
+
                     if send_cond_deferido_act or send_cond_indeferido_act:
-                        st.toast(f"Tentando responder à '{codigo_solicitacao_lf}'. Aguarde...")
+                        st.toast(f"Tentando responder à '{codigo_solicitacao_lf_form_input}'. Aguarde...")
                         send_mail_form_action()
                         if st.session_state.is_email_sended_lf: mark_email_as_sent_form_action()
                     else:
@@ -563,9 +676,12 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                             if not valid_gdoc_for_send_act: st.toast(f":red[Formato do GDOC inválido (xx/{datetime.datetime.now().strftime('%y')})]")
                             if cartao_protocolo_lf_uploader is None: st.toast(":red[Cartão do protocolo não anexado.]")
                             elif not valid_protocol_file_for_send_act: st.toast(":red[Nome do arquivo do protocolo não corresponde ao GDOC.]")
-                            if not valor_manual_ok_for_send_act: st.toast(":red[Valor do DAM não preenchido, inválido ou não é > 0.]")
-                        if status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10): st.toast(":red[Motivo do indeferimento muito curto para envio.]")
+                            if not valor_manual_ok_for_send_act: 
+                                st.toast(":red[Para Deferimento, Valor do DAM não preenchido ou inválido (deve ser um valor monetário >= R$ 0,00).]")
+                        if status_lf_selectbox == "Indeferido" and not (len(motivo_indeferimento_lf_input or "") > 10): 
+                            st.toast(":red[Motivo do indeferimento muito curto para envio.]")
                 else: st.toast(":red[Erro. Código da Solicitação e Tipo de Processo são obrigatórios para envio.]")
+            
             if btn_gdoc_webdriver_form:
                 if cpf_cnpj_lf_input and divisao_lf_selectbox:
                     selenium_proc_gdoc(kw_cpf_cnpj=cpf_cnpj_lf_input, kw_razao_social=razao_social_lf, kw_email1=email1_lf, kw_email2=email2_lf, kw_tipoProc=tipo_processo_lf, kw_divisao=divisao_lf_selectbox, kw_docs1=treated_line_lf.get("Docs. Mesclados 1", ""), kw_docs2=treated_line_lf.get("Docs. Mesclados 2", ""), kw_obs=observacao_lf_input)
