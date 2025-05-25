@@ -1,627 +1,675 @@
 import streamlit as st
 import pandas as pd
 from load_functions import *
-# from streamlit_gsheets import GSheetsConnection
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-#import time, re, json, gspread, pyperclip
-import json, gspread
-#import fitz
+import datetime
+import json
 
 st.header("Processos Diversos", anchor=False)
 
-if 'reload_div_df' not in st.session_state: 
+if 'reload_div_df' not in st.session_state:
     st.session_state.reload_div_df = False
-    # declarar primeiro, e recarregar os outros bancos
     st.session_state.reload_tx_df = True
     st.session_state.reload_lf_df = True
 
-# recarregar os outros bancos
 st.session_state.reload_tx_df = True
 st.session_state.reload_lf_df = True
 
 @st.cache_data(ttl=300, show_spinner="Carregando o banco 'Diversos'...")
-def load_div_df():   
+def load_div_df():
     worksheet = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
     data = worksheet.get_all_records(numericise_ignore=['all'])
     df = pd.DataFrame(data)
     return df
 
-if 'div_df'not in st.session_state:
+if 'div_df' not in st.session_state or st.session_state.reload_div_df:
     df_div_aux = load_div_df()
-    st.session_state.div_df = df_div_aux[df_div_aux["Validade"] != "Inválido"]
-    st.session_state.div_df = st.session_state.div_df.reset_index(drop=True)
-
-if st.session_state.reload_div_df:
-    st.session_state.div_df = None
-    load_div_df.clear()
-    df_div_aux = load_div_df()
-    st.session_state.div_df = df_div_aux[df_div_aux["Validade"] != "Inválido"]
-    st.session_state.div_df = st.session_state.div_df.reset_index(drop=True)
+    if not df_div_aux.empty:
+        st.session_state.div_df = df_div_aux[df_div_aux["Validade"] != "Inválido"].copy()
+        if 'Data Solicitação' in st.session_state.div_df.columns:
+            st.session_state.div_df['Data_Solicitacao_dt_div'] = pd.to_datetime(
+                st.session_state.div_df['Data Solicitação'],
+                format='%d/%m/%y, %H:%M',
+                errors='coerce'
+            )
+        else:
+             st.session_state.div_df['Data_Solicitacao_dt_div'] = pd.NaT
+        st.session_state.div_df = st.session_state.div_df.reset_index(drop=True)
+    else:
+        st.session_state.div_df = pd.DataFrame()
     st.session_state.reload_div_df = False
 
-if 'checkbox_minhas_d' not in st.session_state:
-   st.session_state.checkbox_minhas_d = False
-   st.session_state.disable_checkbox_minhas_d = True
 
-if 'checkbox_nao_respondidas_d' not in st.session_state:
-    st.session_state.checkbox_nao_respondidas_d = False
-    st.session_state.disable_checkbox_nao_respondidas_d = True
+def prepare_hist_df_div(df, source_name):
+    expected_cols = ['CPF / CNPJ', 'Protocolo', 'Data Criação', 'Tipo Processo', 'Valor', 'Status', 'Servidor', 'Respondido']
+    if df.empty:
+        return pd.DataFrame(columns=expected_cols + ['OriginalRowIndex', 'Source', 'Index'])
+    df_processed = df.copy()
+    for col in expected_cols:
+        if col not in df_processed.columns:
+            df_processed[col] = pd.NA
+    current_index_name = df_processed.index.name
+    df_processed = df_processed.reset_index()
+    if 'index' in df_processed.columns and 'OriginalRowIndex' not in df_processed.columns:
+         df_processed.rename(columns={'index': 'OriginalRowIndex'}, inplace=True)
+    elif current_index_name and current_index_name in df_processed.columns and 'OriginalRowIndex' not in df_processed.columns :
+         df_processed.rename(columns={current_index_name: 'OriginalRowIndex'}, inplace=True)
+    elif 'OriginalRowIndex' not in df_processed.columns :
+        df_processed['OriginalRowIndex'] = df_processed.index
+    df_processed['Source'] = source_name
+    df_processed['Index'] = source_name + '_' + df_processed['OriginalRowIndex'].astype(str)
+    return df_processed
 
+if 'status_selecionado_div' not in st.session_state:
+    st.session_state.status_selecionado_div = 'Passivo'
+if 'secondary_pills_selection_div' not in st.session_state:
+    default_secondary = ["As minhas", "Não resp."] if st.session_state.status_selecionado_div in ['Deferido', 'Indeferido'] else []
+    st.session_state.secondary_pills_selection_div = default_secondary
+
+st.session_state.checkbox_minhas_d = "As minhas" in st.session_state.secondary_pills_selection_div
+st.session_state.checkbox_nao_respondidas_d = "Não resp." in st.session_state.secondary_pills_selection_div
+
+# MOVIDO load_df_2025 para dentro de coly mais abaixo.
+# if 'df_geral_2025' not in st.session_state or st.session_state.df_geral_2025 is None:
+#    st.session_state.df_geral_2025 = load_df_2025()
 
 with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
+    
     with colx:
-        col1, col2, col3, col4 = st.columns(4, vertical_alignment="bottom")
-        status_selecionado = col1.selectbox("Status:", options=['Passivo', 'Deferido', 'Indeferido'])
-        tipo_processo_opcoes = st.session_state.div_df['Tipo Processo'].unique()  # Valores únicos
+        col_datas_div, col_filtros_sec_div, col_status_div = st.columns([0.9, 1.0, 1.1], vertical_alignment="center", gap="small")
+        with col_status_div:
+            status_options_div = ['Passivo', 'Deferido', 'Indeferido']
+            current_default_status_pills_div = [st.session_state.status_selecionado_div] if st.session_state.status_selecionado_div in status_options_div else [status_options_div[0]]
+            selected_status_output_div = st.pills(
+                label="Filtro por Status (Diversos):", options=status_options_div,
+                default=current_default_status_pills_div, key="status_pills_filter_key_div",
+                help="Escolha o status do processo (Diversos)", label_visibility='collapsed'
+            )
+        if selected_status_output_div and selected_status_output_div != st.session_state.status_selecionado_div:
+            st.session_state.status_selecionado_div = selected_status_output_div
+            if st.session_state.status_selecionado_div in ['Deferido', 'Indeferido']:
+                st.session_state.secondary_pills_selection_div = ["As minhas", "Não resp."]
+            else:
+                st.session_state.secondary_pills_selection_div = []
+            st.session_state.checkbox_minhas_d = "As minhas" in st.session_state.secondary_pills_selection_div
+            st.session_state.checkbox_nao_respondidas_d = "Não resp." in st.session_state.secondary_pills_selection_div
+            st.rerun()
 
-        # isso é só p evitar estouro de erro por conta de database vazio
-        if 'index_t_proc_div' not in st.session_state:
-            st.session_state.index_t_proc_div = None
-        match len(tipo_processo_opcoes):
-            case 0 | None:
-                st.session_state.index_t_proc_div = None
-            case _:
-                st.session_state.index_t_proc_div = 0  
+        status_para_filtragem_div = st.session_state.status_selecionado_div
+        disable_secondary_pills_div = not (status_para_filtragem_div in ['Deferido', 'Indeferido'])
+        if disable_secondary_pills_div and st.session_state.secondary_pills_selection_div:
+            st.session_state.secondary_pills_selection_div = []
+            st.session_state.checkbox_minhas_d = False
+            st.session_state.checkbox_nao_respondidas_d = False
 
-        tipo_selecionado = col2.selectbox("Tipo Processo:", options=tipo_processo_opcoes, disabled=True, index=st.session_state.index_t_proc_div)
+        with col_filtros_sec_div:
+            opcoes_filtros_secundarios_div = ["As minhas", "Não resp."]
+            selected_secondary_output_div = st.pills(
+                label="Filtros Secundários (Diversos)", options=opcoes_filtros_secundarios_div,
+                default=st.session_state.secondary_pills_selection_div, selection_mode="multi",
+                key="filtros_pills_secundarios_key_div", help="Selecione os filtros desejados (Diversos)",
+                label_visibility='collapsed', disabled=disable_secondary_pills_div
+            )
+        if not disable_secondary_pills_div:
+            if st.session_state.secondary_pills_selection_div != selected_secondary_output_div:
+                st.session_state.secondary_pills_selection_div = selected_secondary_output_div
+                st.session_state.checkbox_minhas_d = "As minhas" in st.session_state.secondary_pills_selection_div
+                st.session_state.checkbox_nao_respondidas_d = "Não resp." in st.session_state.secondary_pills_selection_div
+                st.rerun()
 
-        if status_selecionado == 'Deferido' or status_selecionado == 'Indeferido':
-            st.session_state.disable_checkbox_minhas_d = False
-            st.session_state.disable_checkbox_nao_respondidas_d = False
+        with col_datas_div:
+            today_div = datetime.date.today()
+            thirty_days_ago_div = today_div - datetime.timedelta(days=30)
+            min_date_selectable_div = datetime.date(2020, 1, 1)
+            DATE_INPUT_KEY_DIV = "date_input_div_range_key"
+            if DATE_INPUT_KEY_DIV not in st.session_state:
+                st.session_state[DATE_INPUT_KEY_DIV] = (thirty_days_ago_div + datetime.timedelta(days=1), today_div)
+            st.date_input(
+                "Intervalo de Datas (Diversos)", min_value=min_date_selectable_div, max_value=today_div,
+                format="DD/MM/YYYY", label_visibility='collapsed', key=DATE_INPUT_KEY_DIV
+            )
+            current_range_dates_div = st.session_state[DATE_INPUT_KEY_DIV]
+            if isinstance(current_range_dates_div, (tuple, list)) and len(current_range_dates_div) == 2:
+                data_inicio_div, data_fim_div = current_range_dates_div
+            else:
+                st.toast("🛑 :red[**Intervalo de datas inválido para 'Diversos'. Usando data de hoje.**]")
+                data_inicio_div = data_fim_div = today_div
+
+        if 'div_df' not in st.session_state or st.session_state.div_df.empty:
+            st.warning("Banco de Processos Diversos está vazio ou não carregado.")
+            df_diversos_filtrado_final = pd.DataFrame()
         else:
-            st.session_state.disable_checkbox_minhas_d = True
-            st.session_state.disable_checkbox_nao_respondidas_d = True
+            df_diversos_para_filtrar = st.session_state.div_df.copy()
+            df_diversos_para_filtrar['Status'] = df_diversos_para_filtrar['Status'].replace("", "Passivo")
+            if status_para_filtragem_div:
+                df_diversos_filtrado_final = df_diversos_para_filtrar[df_diversos_para_filtrar['Status'] == status_para_filtragem_div].copy()
+            else:
+                df_diversos_filtrado_final = df_diversos_para_filtrar.copy()
+            if st.session_state.checkbox_minhas_d and "Servidor" in df_diversos_filtrado_final.columns and "sessao_servidor" in st.session_state:
+                df_diversos_filtrado_final = df_diversos_filtrado_final[df_diversos_filtrado_final['Servidor'] == st.session_state.sessao_servidor]
+            if st.session_state.checkbox_nao_respondidas_d and "Respondido" in df_diversos_filtrado_final.columns:
+                df_diversos_filtrado_final = df_diversos_filtrado_final[df_diversos_filtrado_final['Respondido'] == "Não"]
+            if data_inicio_div and data_fim_div and not df_diversos_filtrado_final.empty and 'Data_Solicitacao_dt_div' in df_diversos_filtrado_final.columns:
+                df_temp_date_filter = df_diversos_filtrado_final.dropna(subset=['Data_Solicitacao_dt_div'])
+                if pd.api.types.is_datetime64_any_dtype(df_temp_date_filter['Data_Solicitacao_dt_div']):
+                    df_diversos_filtrado_final = df_temp_date_filter[
+                        (df_temp_date_filter['Data_Solicitacao_dt_div'].dt.date >= data_inicio_div) &
+                        (df_temp_date_filter['Data_Solicitacao_dt_div'].dt.date <= data_fim_div) ]
+                else: st.warning("Coluna 'Data_Solicitacao_dt_div' não está em formato de data para filtro.")
 
-        chk_somente_minhas = col3.checkbox("As minhas", value=st.session_state.checkbox_minhas_d, disabled=st.session_state.disable_checkbox_minhas_d, help="Mostrar somente as tratadas por mim")
+        cols_to_display_div = ["Código Solicitação", "Data Solicitação", "CPF / CNPJ", "Tipo Processo"]
+        div_df_display = pd.DataFrame(columns=cols_to_display_div)
+        if not df_diversos_filtrado_final.empty:
+            actual_cols_div = [col for col in cols_to_display_div if col in df_diversos_filtrado_final.columns]
+            if actual_cols_div: div_df_display = df_diversos_filtrado_final[actual_cols_div].reset_index(drop=True)
+
+        column_config_div = {
+            "Código Solicitação": st.column_config.TextColumn("Cód.", width=100),
+            "Data Solicitação": st.column_config.TextColumn("Data", width=130),
+            "CPF / CNPJ": st.column_config.TextColumn("CPF / CNPJ", width=160),
+            "Tipo Processo": st.column_config.TextColumn("Tipo Processo", width=None) }
+        if not div_df_display.empty:
+            for col in div_df_display.columns:
+                if col not in column_config_div: column_config_div[col] = st.column_config.TextColumn(col)
+
+        DIV_TABLE_KEY = "div_table_selection"
+        st.dataframe(
+            div_df_display, key=DIV_TABLE_KEY, on_select="rerun", selection_mode="single-row",
+            column_config=column_config_div, height=224, use_container_width=True, hide_index=True )
         
-        chk_nao_respondidas = col4.checkbox("Não respondidas", value=st.session_state.checkbox_nao_respondidas_d, disabled=st.session_state.disable_checkbox_nao_respondidas_d)
-
-        st.session_state.div_df['Status'] = st.session_state.div_df['Status'].replace("", "Passivo")
-        df_diversos = st.session_state.div_df[st.session_state.div_df['Status'] == status_selecionado] if status_selecionado else st.session_state.div_df
+        total_exibido_div = len(div_df_display)
+        badge_text_div = f"Exibindo: {total_exibido_div}"
         
-        if chk_somente_minhas:
-            df_diversos = df_diversos[df_diversos['Servidor'] == st.session_state.sessao_servidor]
+        if 'div_df' in st.session_state and not st.session_state.div_df.empty:
+            base_df_for_badge_div = st.session_state.div_df.copy()
+            base_df_for_badge_div['Status'] = base_df_for_badge_div['Status'].replace("", "Passivo")
+            total_passivos_badge_div = len(base_df_for_badge_div[base_df_for_badge_div['Status'] == 'Passivo'])
+            if "Respondido" in base_df_for_badge_div.columns:
+                total_nao_respondidos_badge_div = len(base_df_for_badge_div[base_df_for_badge_div['Respondido'] == 'Não'])
+                badge_text_div += f" ~ Passivo: {total_passivos_badge_div} ~ Não respondidos: {total_nao_respondidos_badge_div}"
+            else: badge_text_div += f" ~ Passivo: {total_passivos_badge_div} ~ Não respondidos: N/A"
+            st.badge(badge_text_div, color="blue")
+        else: st.badge(f"Exibindo: {total_exibido_div} ~ Totais Gerais: N/A", color="grey")
+
+        selected_row_div_df = pd.DataFrame()
+        st.session_state.selected_index_div = None
+        if DIV_TABLE_KEY in st.session_state:
+            selection_div = st.session_state[DIV_TABLE_KEY].selection
+            if selection_div.rows:
+                selected_df_index_div = selection_div.rows[0]
+                if selected_df_index_div < len(div_df_display):
+                    selected_row_div_df = div_df_display.iloc[[selected_df_index_div]]
+                    if not selected_row_div_df.empty and "Código Solicitação" in selected_row_div_df.columns:
+                        cod_sol_sel = selected_row_div_df["Código Solicitação"].iloc[0]
+                        if not st.session_state.div_df.empty and "Código Solicitação" in st.session_state.div_df.columns:
+                            original_df_matches = st.session_state.div_df[st.session_state.div_df["Código Solicitação"] == cod_sol_sel]
+                            if not original_df_matches.empty: st.session_state.selected_index_div = original_df_matches.index[0]
         
-        if chk_nao_respondidas:
-            df_diversos = df_diversos[df_diversos['Respondido'] == "Não"]
-
-        div_df_filtrado = df_diversos.iloc[:, [0, 1, 4, 2]]
-        # st.write(div_df_filtrado)
-        ge = GridOptionsBuilder.from_dataframe(div_df_filtrado)
-        ge.configure_default_column(
-            cellStyle={'font-size': '15px'},
-            resizable=True,  # Permite redimensionar as colunas
-            filterable=False,
-            sortable=False,
-            groupable=False
-        )
-        ge.configure_column("Código Solicitação", minWidth=101, maxWidth=101, header_name="Cód.")
-        ge.configure_column("Data Solicitação", minWidth=130, maxWidth=130, header_name="Data")
-        ge.configure_column("CPF / CNPJ", minWidth=160, maxWidth=160, header_name="CPF / CNPJ")
-        ge.configure_column("Tipo Processo", minWidth=290, maxWidth=290, header_name="Tipo Processo")
-        ge.configure_selection('single')  # Permite a seleção de uma linha
-        ge.configure_pagination(paginationAutoPageSize=False, paginationPageSize=5)
-        # Configurar opções do grid
-        grid_options = ge.build()
-        grid_options["domLayout"] = "print"  # Redimensiona automaticamente o grid
-        grid_options["suppressContextMenu"] = True
-        grid_options["suppressMenu"] = True
-        grid_options["pagination"] = True  # Ativa paginação no grid
-        grid_options["paginationPageSizeSelector"] = False
-
-        # Renderizando o AgGrid
-        grid_response_d = AgGrid(
-            div_df_filtrado,
-            height=224,
-            gridOptions=grid_options,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            theme='streamlit'
-        )
-
-        selected_row_div = grid_response_d.get('selected_rows', None)
-            
-        if not selected_row_div is None: 
-            selected_index_div = df_diversos.loc[df_diversos['Código Solicitação'] == selected_row_div['Código Solicitação'].iloc[0]].index
-
-        if 'aggrid_gf_col2' not in st.session_state:
-            st.session_state.aggrid_gf_col2 = None
-        
-        if 'div_clear_clicked' not in st.session_state:
-            st.session_state.div_clear_clicked = False
+        if 'div_clear_clicked' not in st.session_state: st.session_state.div_clear_clicked = False
 
     with coly:
-        col5, col6, col7 = st.columns(3, vertical_alignment="bottom")
-        teste1 = col5.selectbox("Filtro 1",  options=['Passivo', 'Filtro 1', 'Indeferido'], index=1, disabled=True)
-        teste2 = col6.selectbox("Filtro 2",  options=['Passivo', 'Filtro 2', 'Indeferido'], index=1, disabled=True)
-        teste3 = col7.selectbox("Filtro 3",  options=['Passivo', 'Filtro 3', 'Indeferido'], index=1, disabled=True)
+        col1_y_dummy, col2_y_dummy = st.columns([0.5, 1.5], vertical_alignment="top")
+        opcoes_filtro_dummy_div = ['Alfa', 'Beta', 'Gama', 'Delta']
+        with col1_y_dummy:
+            st.text_input("Teste 1 (desabilitado)", value="", disabled=True, label_visibility='collapsed', key="dummy_test1_coly_div")
+        with col2_y_dummy:
+            st.selectbox("Teste 2 (desabilitado)", opcoes_filtro_dummy_div, index=1, disabled=True, label_visibility='collapsed', key="dummy_test2_coly_div")
 
-
-        div_merged_df = st.session_state.merged_df
-
-        st.session_state.df_geral_2025 = load_df_2025()
-
-        df_geral_2025 = st.session_state.df_geral_2025
-        if not 'Index' in df_geral_2025.columns:
-            df_geral_2025 = df_geral_2025.ffill()
-            df_geral_2025['Index'] = range(len(df_geral_2025))
-           
-        # Verifica se há uma linha selecionada na tabela da col1
-        if not selected_row_div is None:  # Verifica se existe uma linha selecionada
-            #selected_cpf_cnpj = selected_rows[0].get("CPF / CNPJ", None)
-            selected_cpf_cnpj = selected_row_div['CPF / CNPJ']
-            if not selected_cpf_cnpj is None:
-                # Filtra o DataFrame para exibir somente linhas com o mesmo CPF / CNPJ
-                filtered_div_merged_df = div_merged_df[div_merged_df["CPF / CNPJ"] == selected_cpf_cnpj.iloc[0]]
-                filtered_geral_2025 = df_geral_2025[df_geral_2025['CPF / CNPJ'] == selected_cpf_cnpj.iloc[0]]
-
-                allin_merged_df = pd.concat([filtered_geral_2025, filtered_div_merged_df], ignore_index=True)
-            else:
-                allin_merged_df = pd.DataFrame()  # Nenhuma linha será exibida se CPF / CNPJ não for encontrado
-        else:
-            allin_merged_df = pd.DataFrame()  # Nenhuma linha será exibida se nada for selecionado
-
-        # Configuração da tabela AgGrid para col2
+        # MOVIDO AQUI
+        if 'df_geral_2025' not in st.session_state or st.session_state.df_geral_2025 is None:
+            st.session_state.df_geral_2025 = load_df_2025()
         
+        df_geral_2025_hist_src = st.session_state.df_geral_2025.copy() if st.session_state.df_geral_2025 is not None else pd.DataFrame()
+        div_merged_df_hist_src = st.session_state.get('merged_df', pd.DataFrame()).copy() 
+        df_geral_2025_hist_prepared = prepare_hist_df_div(df_geral_2025_hist_src, '2025')
+        div_merged_df_hist_prepared = prepare_hist_df_div(div_merged_df_hist_src, 'MergedDiversos')
+        allin_merged_df_hist_base = pd.concat([df_geral_2025_hist_prepared, div_merged_df_hist_prepared], ignore_index=True)
+        
+        allin_merged_df_hist_filtered_cpf = pd.DataFrame()
+        if not selected_row_div_df.empty and "CPF / CNPJ" in selected_row_div_df.columns:
+            selected_cpf_cnpj_val = selected_row_div_df["CPF / CNPJ"].iloc[0]
+            if selected_cpf_cnpj_val and not allin_merged_df_hist_base.empty:
+                allin_merged_df_hist_filtered_cpf = allin_merged_df_hist_base[allin_merged_df_hist_base['CPF / CNPJ'] == selected_cpf_cnpj_val].copy()
+        
+        final_hist_df_to_display = allin_merged_df_hist_filtered_cpf.copy()
+        hist_display_cols_ordered_div = ["Protocolo", "Data Criação", "CPF / CNPJ", "Tipo Processo", "Index"]
+        
+        if 'hist_div_df_display' not in st.session_state: st.session_state.hist_div_df_display = pd.DataFrame(columns=hist_display_cols_ordered_div)
         if st.session_state.div_clear_clicked:
-            st.session_state.aggrid_gf_col2 = pd.DataFrame()
-            st.session_state.div_clear_clicked = False
+            st.session_state.hist_div_df_display = pd.DataFrame(columns=hist_display_cols_ordered_div)
+            st.session_state.div_clear_clicked = False 
         else:
-            st.session_state.aggrid_gf_col2 = allin_merged_df.iloc[:, [0, 4, 8, 1, 10]] if not allin_merged_df.empty else pd.DataFrame(columns=["Protocolo", "Data Criação", "CPF / CNPJ", "Tipo Processo"])
-            #st.session_state.aggrid_gf_col2["Data Criação"] = pd.to_datetime(st.session_state.aggrid_gf_col2["Data Criação"], format="%d/%m/%Y", errors="coerce")
-            st.session_state.aggrid_gf_col2 = st.session_state.aggrid_gf_col2.copy() # fazer uma cópia do df evita o warning fdp
-            st.session_state.aggrid_gf_col2["Data Criação"] = pd.to_datetime(
-                st.session_state.aggrid_gf_col2["Data Criação"], 
-                format="%d/%m/%Y", 
-                errors="coerce"
-            )                    
-            st.session_state.aggrid_gf_col2 = st.session_state.aggrid_gf_col2.sort_values(by="Data Criação", ascending=False)
-            st.session_state.aggrid_gf_col2["Data Criação"] = st.session_state.aggrid_gf_col2["Data Criação"].dt.strftime("%d/%m/%Y")
+            if not final_hist_df_to_display.empty:
+                for col_d in hist_display_cols_ordered_div:
+                    if col_d not in final_hist_df_to_display.columns: final_hist_df_to_display[col_d] = pd.NA
+                st.session_state.hist_div_df_display = final_hist_df_to_display[hist_display_cols_ordered_div].copy()
+                if 'Data Criação' in st.session_state.hist_div_df_display.columns:
+                    temp_data_col = pd.to_datetime(st.session_state.hist_div_df_display['Data Criação'], format="%d/%m/%Y", errors='coerce')
+                    if not temp_data_col.isna().all():
+                        st.session_state.hist_div_df_display = st.session_state.hist_div_df_display.assign(temp_sort_date=temp_data_col).sort_values(by="temp_sort_date", ascending=False).drop(columns="temp_sort_date")
+            else: st.session_state.hist_div_df_display = pd.DataFrame(columns=hist_display_cols_ordered_div)
 
-        gf = GridOptionsBuilder.from_dataframe(st.session_state.aggrid_gf_col2)
-        gf.configure_column("Index", hide=True)
-        gf.configure_default_column(cellStyle={'font-size': '15px'})
-        gf.configure_default_column(resizable=False, filterable=False, sortable=False, groupable=False)
-        gf.configure_column("Protocolo", minWidth=101, maxWidth=101, header_name="Protocolo")
-        gf.configure_column("Data Criação", minWidth=130, maxWidth=130, header_name="Data")
-        gf.configure_column("CPF / CNPJ", minWidth=160, maxWidth=160, header_name="CPF / CNPJ")
-        gf.configure_column("Tipo Processo", minWidth=290, maxWidth=290, header_name="Tipo Processo")
-        gf.configure_selection('single')
-        gf.configure_pagination(paginationAutoPageSize=False, paginationPageSize=5)
-        gf.configure_grid_options(onCellClicked=True)
+        column_config_merged_div = {
+            "Index": None, "Protocolo": st.column_config.TextColumn("Protocolo", width=110),
+            "Data Criação": st.column_config.TextColumn("Data", width=100),
+            "CPF / CNPJ": st.column_config.TextColumn("CPF / CNPJ", width=160),
+            "Tipo Processo": st.column_config.TextColumn("Tipo Processo", width=None) }
+        if not st.session_state.hist_div_df_display.empty:
+            for col in st.session_state.hist_div_df_display.columns:
+                if col not in column_config_merged_div: column_config_merged_div[col] = st.column_config.TextColumn(col)
 
-        # Configurar opções do grid
-        grid_options_merged = gf.build()
-        grid_options_merged["domLayout"] = "print"
-        grid_options_merged["suppressContextMenu"] = True
-        grid_options_merged["suppressMenu"] = True
-        grid_options_merged["suppressRowClickSelection"] = False
-       
-        grid_options_merged["pagination"] = True
-        grid_options_merged["paginationPageSizeSelector"] = False
+        MERGED_DIV_TABLE_KEY = "merged_div_table_selection"
+        current_hist_div_df_display_final = st.session_state.hist_div_df_display.reset_index(drop=True)
+        st.dataframe(
+            current_hist_div_df_display_final, key=MERGED_DIV_TABLE_KEY, on_select="rerun", selection_mode="single-row",
+            column_config=column_config_merged_div, height=224, use_container_width=True, hide_index=True )
+        total_exibido_hist_div = len(current_hist_div_df_display_final)
+        st.badge(f"Exibindo Histórico: {total_exibido_hist_div}", color="green")
 
-        grid_response_merged_d = AgGrid(
-            st.session_state.aggrid_gf_col2,
-            height=224,
-            gridOptions=grid_options_merged,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            theme='streamlit'
-        )
+        if 'sel_merged_div_df' not in st.session_state: st.session_state.sel_merged_div_df = pd.DataFrame()
+        if MERGED_DIV_TABLE_KEY in st.session_state:
+            selection_merged_div = st.session_state[MERGED_DIV_TABLE_KEY].selection
+            if selection_merged_div.rows:
+                selected_merged_df_index_div = selection_merged_div.rows[0]
+                if selected_merged_df_index_div < len(current_hist_div_df_display_final):
+                    st.session_state.sel_merged_div_df = current_hist_div_df_display_final.iloc[[selected_merged_df_index_div]]
+                else: st.session_state.sel_merged_div_df = pd.DataFrame()
+            else: st.session_state.sel_merged_div_df = pd.DataFrame()
 
-        if 'sel_merged_div' not in st.session_state:
-            st.session_state.sel_merged_div = None
-            st.session_state.sel_merged_div_clear = False
+        @st.dialog("Detalhes do Processo Selecionado", width="large")
+        def show_data_dialog_div(selected_row_data_df_arg):
+            if selected_row_data_df_arg.empty or 'Index' not in selected_row_data_df_arg.columns:
+                st.warning("Nenhum dado selecionado ou 'Index' ausente para exibir detalhes."); return
+            unique_id_val_dialog = selected_row_data_df_arg['Index'].iloc[0]
+            df_to_display_json = pd.DataFrame() 
+            df_geral_2025_for_dialog = st.session_state.df_geral_2025.copy() if st.session_state.df_geral_2025 is not None else pd.DataFrame()
+            merged_df_for_dialog = st.session_state.get('merged_df', pd.DataFrame()).copy()
+            source_from_id = None; original_idx_from_id = None
+            if isinstance(unique_id_val_dialog, str):
+                parts = unique_id_val_dialog.split('_', 1)
+                if len(parts) == 2:
+                    source_from_id = parts[0]
+                    try: original_idx_from_id = int(parts[1])
+                    except ValueError: st.warning(f"ID de histórico inválido: {unique_id_val_dialog}"); return
+            if source_from_id and original_idx_from_id is not None:
+                temp_df_source = None
+                if source_from_id == '2025': temp_df_source = df_geral_2025_for_dialog
+                elif source_from_id == 'MergedDiversos': temp_df_source = merged_df_for_dialog
+                if temp_df_source is not None and not temp_df_source.empty and original_idx_from_id < len(temp_df_source):
+                    df_to_display_json = temp_df_source.iloc[[original_idx_from_id]].copy()
+            if df_to_display_json.empty: st.warning(f"Não foi possível carregar detalhes. ID: {unique_id_val_dialog}."); return
+            if 'Valor' in df_to_display_json.columns:
+                df_to_display_json.loc[:, 'Valor'] = df_to_display_json['Valor'].apply( lambda x: f'R$ {float(x):,.2f}' if pd.notnull(x) and isinstance(x, (int, float)) else (x if isinstance(x, str) and x.startswith('R$') else 'R$ 0,00') )
+            cols_to_drop_json = [col for col in ['index', 'level_0', 'OriginalRowIndex', 'Source', 'Index'] if col in df_to_display_json.columns]
+            if cols_to_drop_json: df_to_display_json = df_to_display_json.drop(columns=cols_to_drop_json, errors='ignore')
+            df_to_display_json = df_to_display_json.ffill() 
+            json_data_str = df_to_display_json.to_json(orient='records', lines=False, date_format="iso", default_handler=str)
+            try:
+                loaded_json = json.loads(json_data_str)
+                st.json(loaded_json[0] if isinstance(loaded_json, list) and loaded_json else {})
+            except json.JSONDecodeError: st.error("Erro ao decodificar JSON para exibição."); st.text(json_data_str)
 
-        st.session_state.sel_merged_div = grid_response_merged_d.get('selected_rows', None)
-        
-        if 'close_this_damn_json' not in st.session_state:
-            st.session_state.close_this_damn_json = False
+        if not st.session_state.sel_merged_div_df.empty:
+            if 'show_details_dialog_trigger_div' not in st.session_state: st.session_state.show_details_dialog_trigger_div = False
+            if 'last_selected_merged_div_index' not in st.session_state: st.session_state.last_selected_merged_div_index = None
+            current_sel_index_dialog_div = None
+            if not st.session_state.sel_merged_div_df.empty and 'Index' in st.session_state.sel_merged_div_df.columns:
+                 current_sel_index_dialog_div = st.session_state.sel_merged_div_df['Index'].iloc[0]
+            if current_sel_index_dialog_div is not None and current_sel_index_dialog_div != st.session_state.last_selected_merged_div_index:
+                st.session_state.show_details_dialog_trigger_div = True; st.session_state.last_selected_merged_div_index = current_sel_index_dialog_div
+            elif current_sel_index_dialog_div is None: st.session_state.last_selected_merged_div_index = None
+            if st.session_state.get('show_details_dialog_trigger_div', False):
+                show_data_dialog_div(st.session_state.sel_merged_div_df); st.session_state.show_details_dialog_trigger_div = False
+# --- Fim do Expander ---
 
-        @st.dialog("Detalhes do Processo selecionado:", width="large")
-        def show_data():
-            if '2025' in str(st.session_state.sel_merged_div['Data Criação']):
-                selected_index_div_merged = df_geral_2025.loc[df_geral_2025.loc[:,'Index'] == st.session_state.sel_merged_div['Index'].iloc[0]]
-                selected_index_div_merged.loc[:, 'Valor'] = selected_index_div_merged['Valor'].map(
-                    lambda x: x if isinstance(x, str) and x.startswith('R$') else f'R$ {x:,.2f}' if isinstance(x, (int, float)) else 'R$ 0,00'
-                )
-            else:
-                selected_index_div_merged = div_merged_df.loc[div_merged_df.loc[:,'Index'] == st.session_state.sel_merged_div['Index'].iloc[0]]          
-                selected_index_div_merged.loc[:, 'Valor'] = selected_index_div_merged['Valor'].map(
-                    lambda x: f'R$ {x:,.2f}' if isinstance(x, (int, float)) else 'R$ 0,00'
-                )
-            
-            selected_index_div_merged.loc[:,'Data Criação'] = selected_index_div_merged['Data Criação']
-            selected_index_div_merged = selected_index_div_merged.ffill()
-            json_data = selected_index_div_merged.to_json(orient='records', lines=False)
-            return st.json(json_data)
-
-        if not st.session_state.close_this_damn_json and not st.session_state.sel_merged_div is None and not st.session_state.sel_merged_div_clear:
-            show_data()
-            st.session_state.sel_merged_div = None
-            st.session_state.sel_merged_div_clear = False
-        else:
-            st.session_state.close_this_damn_json = False
-            st.session_state.sel_merged_div_clear = False
-
-#
-# 
-# to ride the storm, and damn the rest, oblivion.
-#
-
-if 'div_empty_df' not in st.session_state: 
-    selected_line = st.session_state.div_df.iloc[0].copy()
-    selected_line.iloc[:] = ""
-    st.session_state.div_empty_df = selected_line.fillna("")
-    treated_line_div = st.session_state.div_empty_df
-else:
-    treated_line_div = st.session_state.div_empty_df
-
-if selected_row_div is not None and len(selected_row_div) > 0:
-    st.session_state.selected_index_div = int(selected_index_div[0])
-    selected_line = st.session_state.div_df.iloc[st.session_state.selected_index_div]
-    treated_line_div = selected_line.fillna("")
-
-# Tratamento dos botões do formulário enchedo linguiça
+if 'div_empty_df' not in st.session_state:
+    if 'div_df' in st.session_state and not st.session_state.div_df.empty:
+        empty_series_div = pd.Series(index=st.session_state.div_df.columns, dtype='object').fillna("")
+    else:
+        fallback_cols_div = ["Código Solicitação", "Data Solicitação", "Tipo Processo", "Ocorrências", "GDOC", "Divisão", "Razão Social", "CPF / CNPJ", "E-mail", "E-mail CC", "Complemento Valor", "Valor Unitário", "Valor Manual", "Status", "Servidor", "Data Atendimento", "Data Modificação", "Observação", "Motivo Indeferimento", "Respondido", "Docs Mesclados", "Decreto de Utilidade Pública", "CCMEI", "Ofício", "Docs Aprovação de Projeto", "Validade", "Data_Solicitacao_dt_div"]
+        empty_series_div = pd.Series(index=fallback_cols_div, dtype='object').fillna("")
+    st.session_state.div_empty_df = empty_series_div
+treated_line_div = st.session_state.div_empty_df.copy()
+if st.session_state.get('selected_index_div') is not None and 'div_df' in st.session_state and not st.session_state.div_df.empty:
+    idx_to_fetch = st.session_state.selected_index_div
+    if idx_to_fetch >= 0 and idx_to_fetch < len(st.session_state.div_df):
+        selected_line_series_div = st.session_state.div_df.loc[idx_to_fetch]
+        treated_line_div = selected_line_series_div.fillna("").copy()
+    else:
+        st.warning(f"Índice ({idx_to_fetch}) fora dos limites. Resetando seleção.")
+        st.session_state.selected_index_div = None
+        if DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[DIV_TABLE_KEY], 'selection'):
+             st.session_state[DIV_TABLE_KEY].selection.rows = []
 if 'btn_clear_d' not in st.session_state:
-    st.session_state.btn_clear_d = False
-    st.session_state.disable_file_uploader = True
-    st.session_state.disable_btn_save_d = True
-    st.session_state.disable_btn_edit_d = True
+    st.session_state.btn_clear_d = False; st.session_state.disable_file_uploader = True
+    st.session_state.disable_btn_save_d = True; st.session_state.disable_btn_edit_d = True
     st.session_state.disable_btn_send_d = True
+if st.session_state.btn_clear_d: 
+    treated_line_div = st.session_state.div_empty_df.copy(); st.session_state.selected_index_div = None 
+    if DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[DIV_TABLE_KEY], 'selection'): st.session_state[DIV_TABLE_KEY].selection.rows = []
+    if MERGED_DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[MERGED_DIV_TABLE_KEY], 'selection'): st.session_state[MERGED_DIV_TABLE_KEY].selection.rows = []
+    st.session_state.sel_merged_div_df = pd.DataFrame(); st.session_state.last_selected_merged_div_index = None
+    st.session_state.clicou_no_editar_d = False
 
-if st.session_state.btn_clear_d:
-    treated_line_div = st.session_state.div_empty_df
-    st.session_state.btn_clear_d = False
-
-#
-#
-#
-#
-
-show_expander_2 = False
-if len(treated_line_div["Código Solicitação"]) > 1:
-    show_expander_2 = True
-
+show_expander_2 = bool("Código Solicitação" in treated_line_div and len(str(treated_line_div.get("Código Solicitação",""))) > 1)
 with st.expander("Detalhes da solicitação", expanded=show_expander_2):
     st.write("")
-    with st.form("form_diversos", enter_to_submit=False, border=False, clear_on_submit=True):
-        col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,0.6,0.6,0.6,0.4,0.6,0.6,0.2], vertical_alignment="bottom")
-        tipo_processo_d = col1.text_input("Tipo Processo", value=treated_line_div["Tipo Processo"])
-        codigo_solicitacao_d = col2.text_input("Cód. Solicitação", value=treated_line_div["Código Solicitação"])
-        data_solicitacao_d = col3.text_input("Data Solicitação", value=treated_line_div["Data Solicitação"])
-        ocorrencias_d = col4.text_input("Ocorrências", value=treated_line_div["Ocorrências"])
-
-        if 'disable_btn_ocorrencias' not in st.session_state:
-            st.session_state.disable_btn_ocorrencias = True
-
-        if treated_line_div["Ocorrências"] == "":
-            st.session_state.disable_btn_ocorrencias = True
-        else:
-            st.session_state.disable_btn_ocorrencias = False
-
-        btn_ocorrencias = col5.form_submit_button(":material/eye_tracking:", type="secondary",
-                                use_container_width=True, disabled=st.session_state.disable_btn_ocorrencias)
-
-        if btn_ocorrencias:
-            get_ocorrencias(treated_line_div["CPF / CNPJ"], "diversos")
-            btn_ocorrencias = False
-
-        gdoc_d = col6.text_input("GDOC/Ano (xx/25) *", value=treated_line_div["GDOC"])
+    with st.form("form_diversos", border=False):
+        col1_form, col2_form, col3_form, col4_form, col5_form, col6_form, col7_form, col8_form = st.columns([2,0.6,0.6,1.2,0.6,0.6,0.2,0.1], vertical_alignment="bottom") # Ajustado col5 para botão ocorrências
+        tipo_processo_d_form_val = treated_line_div.get("Tipo Processo", "")
+        tipo_processo_d_input = col1_form.text_input("Tipo Processo", value=tipo_processo_d_form_val, key="form_d_tipo_proc", disabled=True)
+        codigo_solicitacao_d_form_val = treated_line_div.get("Código Solicitação", "")
+        codigo_solicitacao_d_input = col2_form.text_input("Cód. Solicitação", value=codigo_solicitacao_d_form_val, key="form_d_cod_sol", disabled=bool(codigo_solicitacao_d_form_val))
+        data_solicitacao_d_form_val = treated_line_div.get("Data Solicitação", "")
+        data_solicitacao_d_input = col3_form.text_input("Data Solicitação", value=data_solicitacao_d_form_val, key="form_d_data_sol", disabled=True)
         
-        match treated_line_div["Respondido"]:
-            case "Sim":
-                col8.header(":material/check_circle:", anchor=False)
-                #col7.header("🟢", anchor=False)
-            case "Não":
-                col8.header(":material/do_not_disturb_on:", anchor=False)
-                #col7.header("🔴", anchor=False)
-            case _:
-                col8.header(":material/pending:", anchor=False)
-                #col7.header("⚪️", anchor=False)
+        # MODIFICAÇÃO: Botão Ocorrências
+        ocorrencias_d_form_val = treated_line_div.get("Ocorrências", "")
+        # O campo de texto para Ocorrências foi removido, o botão mostrará o valor
+        # ocorrencias_d_form_input = col4_form.text_input("Ocorrências", value=ocorrencias_d_form_val, key="form_d_ocorrencias", disabled=True)
         
-        divisao_index = None
-        match treated_line_div["Divisão"]:
-            case 'DVSA':
-                divisao_index = 0
-            case 'DVSE':
-                divisao_index = 1
-            case 'DVSCEP':
-                divisao_index = 2
-            case 'DVSDM':
-                divisao_index = 3
-            case 'Visamb':
-                divisao_index = 4
-            case 'Açaí':
-                divisao_index = 5
-            case _:
-                divisao_index = 6
-        
-        divisao_d = col7.selectbox("Divisão *", ('DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Visamb', 'Açaí', ''), index=divisao_index)
+        btn_ocorrencias_label_form = f"{ocorrencias_d_form_val} 👁️" if ocorrencias_d_form_val else "Ocorrências 👁️"
+        btn_ocorrencias_disabled_form = not bool(ocorrencias_d_form_val)
+        btn_ocorrencias_form = col4_form.form_submit_button( # Movido para col4_form
+            btn_ocorrencias_label_form, type="primary", use_container_width=True, 
+            disabled=btn_ocorrencias_disabled_form, help="Ver Ocorrências"
+        )
+        # col5_form não é mais usado para o botão antigo, agora é col4_form. Ajustar próximas colunas se necessário.
+        # As colunas originais eram: [2,0.6,0.6,0.6,0.4,0.6,0.6,0.2]
+        # Nova distribuição (exemplo, pode precisar de ajuste fino):
+        # col1(TP), col2(Cod), col3(Data), col4(BtnOcor), col5(GDOC), col6(Divisão), col7(IconStatus)
+        # Para manter 8 colunas: [2, 0.6, 0.6, 0.8 (BtnOcor), 0.6 (GDOC), 0.6 (Div), 0.2 (Icon)] - Reajustar abaixo
 
+        gdoc_d_form_val = treated_line_div.get("GDOC", "")
+        gdoc_d_form_input = col5_form.text_input("GDOC/Ano (xx/AA) *", value=gdoc_d_form_val, key="form_d_gdoc") # col5_form
 
-
-        col1, col2, col3, col4, col5 = st.columns([2,1,0.4,1,1], vertical_alignment="bottom")
-        razao_social_d = col1.text_input("Nome Empresa", value=treated_line_div["Razão Social"])
-        cpf_cnpj_d = col2.text_input("CPF / CNPJ", value=treated_line_div["CPF / CNPJ"])
-                
-        btn_cnpj_d = col3.form_submit_button("", use_container_width=True, icon=":material/search:")
-        email1_d = col4.text_input("E-mail", value=treated_line_div["E-mail"])
-        email2_d = col5.text_input("E-mail CC", value=treated_line_div["E-mail CC"])
-        
-
-        if btn_cnpj_d:
-            if len(treated_line_div["CPF / CNPJ"]) == 18:
-                get_cnpj(treated_line_div["CPF / CNPJ"], '', '')
-            else:
-                st.toast(":red[Não vai rolar. Desculpe. 🙂‍↔️]")
-
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5,0.7,0.7,0.8,1,0.7,0.7], vertical_alignment="bottom")   
-        comp_valor_un_d = col1.text_input("Comp. Valor", value=treated_line_div["Complemento Valor"])
-        valor_un_d = col2.text_input("Valor Unit.", value=treated_line_div["Valor Unitário"])
-
-        match treated_line_div["Complemento Valor"]:
-
-            case '' | 'Pessoa Física' | 'Empresa Privada':
-                treated_line_div["Valor Manual"] = treated_line_div["Valor Manual"]
-            case _:
-                treated_line_div["Valor Manual"] = 'R$ 0,00'
-
-        valor_manual_d = col3.text_input("Valor do DAM *", value=treated_line_div["Valor Manual"])
-
-        status_index_d = 3
-
-        match treated_line_div["Status"]:
-            case 'Passivo':
-                status_index_d = 0
-                st.session_state.disable_btn_edit_d = True
-                st.session_state.disable_btn_save_d = False
-                st.session_state.disable_btn_send_d = True
-                st.session_state.disable_file_uploader = True
-            case 'Deferido':
-                status_index_d = 1
-                st.session_state.disable_file_uploader = False
-                st.session_state.disable_btn_edit_d = False
-                st.session_state.disable_btn_save_d = True
-                st.session_state.disable_btn_send_d = False
-            case 'Indeferido':
-                status_index_d = 2
-                st.session_state.disable_btn_edit_d = False
-                st.session_state.disable_btn_save_d = True
-                st.session_state.disable_btn_send_d = False
-                st.session_state.disable_file_uploader = True
-            case _:
-                status_index_d = 3
-
-        status_d = col4.selectbox("Status *", ('Passivo', 'Deferido', 'Indeferido', ''), index=status_index_d)
-        
-        servidor_d = col5.text_input("Servidor", value=treated_line_div["Servidor"])
-        data_atendimento_d = col6.text_input("Data At.", value=treated_line_div["Data Atendimento"])
-        data_modificacao_d = col7.text_input("Data Mod.", value=treated_line_div["Data Modificação"])
-
-        col1, col2, col3 = st.columns(3, vertical_alignment="top")
-        observacao_d = col1.text_area("Observação", value=treated_line_div["Observação"], height=77)
-        motivo_indeferimento_d = col2.text_area("Motivo Indeferimento *", value=treated_line_div["Motivo Indeferimento"], height=77)
-
-        cartao_protocolo_d = col3.file_uploader(
-            "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'], disabled=st.session_state.disable_file_uploader
+        # MODIFICAÇÃO: Selectbox Divisão
+        divisao_options_form_d_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Visamb', 'Açaí'] # Removido ''
+        current_divisao_d_form_val = treated_line_div.get("Divisão", "")
+        divisao_index_form_d_sel = None # Para exibir placeholder
+        if current_divisao_d_form_val and current_divisao_d_form_val in divisao_options_form_d_sel:
+            divisao_index_form_d_sel = divisao_options_form_d_sel.index(current_divisao_d_form_val)
+        divisao_d_form_selectbox = col6_form.selectbox( # col6_form
+            "Divisão *", divisao_options_form_d_sel, index=divisao_index_form_d_sel, 
+            key="form_d_divisao_sel", placeholder="..."
         )
 
-        #if cartao_protocolo_d is not None:
-        #    bytes_data = cartao_protocolo_d.getvalue()
-        #    st.write(bytes_data)
+        respondido_val_form = treated_line_div.get("Respondido", "")
+        status_icon_d_form = ":material/pending:"
+        if respondido_val_form == "Sim": status_icon_d_form = ":material/check_circle:"
+        elif respondido_val_form == "Não": status_icon_d_form = ":material/do_not_disturb_on:"
+        col7_form.header(status_icon_d_form, anchor=False) # col7_form (col8 original foi absorvida)
 
-        col1, col2, col3, col4, col5, col6 = st.columns(6, vertical_alignment='bottom')
-        col7, col8, col9, col10, col11, col12 = st.columns(6, vertical_alignment='bottom', gap='small')      
+        # --- Linha 2 do formulário ---
+        col1_f2, col2_f2, col3_f2, col4_f2, col5_f2 = st.columns([2,1,0.4,1,1], vertical_alignment="bottom")
+        # ... (campos desta linha como estavam) ...
+        razao_social_d_form_input = col1_f2.text_input("Nome Empresa", value=treated_line_div.get("Razão Social", ""), key="form_d_razao_social_input")
+        cpf_cnpj_d_form_input = col2_f2.text_input("CPF / CNPJ", value=treated_line_div.get("CPF / CNPJ", ""), key="form_d_cpf_cnpj_input")
+        btn_cnpj_d_form = col3_f2.form_submit_button("🔎", use_container_width=True, help="Buscar CNPJ/CPF")
+        email1_d_form_input = col4_f2.text_input("E-mail", value=treated_line_div.get("E-mail", ""), key="form_d_email1_input")
+        email2_d_form_input = col5_f2.text_input("E-mail CC", value=treated_line_div.get("E-mail CC", ""), key="form_d_email2_input")
 
-        col_btn = [col1, col2]
-        col_btn_projeto = [col3, col4, col5, col6, col7, col8, col9, col10, col11, col12]
-        col_index = 0
+        # --- Linha 3 do formulário ---
+        col1_f3, col2_f3, col3_f3, col4_f3, col5_f3, col6_f3, col7_f3 = st.columns([1.5,0.7,0.7,0.8,1,0.7,0.7], vertical_alignment="bottom")
+        # ... (campos desta linha como estavam, mas usando `status_d_form_selectbox` para o status) ...
+        comp_valor_un_d_form_input = col1_f3.text_input("Comp. Valor", value=treated_line_div.get("Complemento Valor", ""), key="form_d_comp_valor_input")
+        valor_un_d_form_input = col2_f3.text_input("Valor Unit.", value=treated_line_div.get("Valor Unitário", ""), key="form_d_valor_unit_input")
+        current_valor_manual_d_form = treated_line_div.get("Valor Manual", "")
+        if comp_valor_un_d_form_input not in ['', 'Pessoa Física', 'Empresa Privada'] and not current_valor_manual_d_form :
+            current_valor_manual_d_form = 'R$ 0,00'
+        valor_manual_d_form_input = col3_f3.text_input("Valor do DAM *", value=current_valor_manual_d_form, key="form_d_valor_manual_input")
 
-        cabecalho_url = ["Docs Mesclados", "Decreto de Utilidade Pública", "CCMEI", "Ofício"]
+        # Selectbox de Status com placeholder
+        status_options_form_d_sel = ['Passivo', 'Deferido', 'Indeferido'] # Removido ''
+        current_status_d_form_val = treated_line_div.get("Status", "")
+        status_index_form_d_sel = None # Para placeholder
+        if current_status_d_form_val and current_status_d_form_val in status_options_form_d_sel:
+            status_index_form_d_sel = status_options_form_d_sel.index(current_status_d_form_val)
+        status_d_form_selectbox = col4_f3.selectbox( # Este é o selectbox de Status do formulário
+            "Status *", status_options_form_d_sel, index=status_index_form_d_sel, 
+            key="form_d_status_sel", placeholder="..."
+        )
+        # Lógica de habilitação dos botões (mantida)
+        disable_file_uploader_form = True; disable_btn_save_d_form = True
+        disable_btn_edit_d_form = True; disable_btn_send_d_form = True
+        effective_status_form = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
+        is_existing_record = bool(codigo_solicitacao_d_form_val)
 
-        # Adiciona os dois primeiros botões normalmente
-        for col in cabecalho_url:
-            url = treated_line_div.get(col)
-            if isinstance(url, str) and url.startswith("http"):  # Verifica se a célula tem um URL válido
-                with col_btn[col_index]:
-                    col_btn[col_index].link_button(f"{col}", url, icon=":material/link:", use_container_width=True)
-                col_index = (col_index + 1) % 2
+        if st.session_state.get('clicou_no_editar_d', False): # Se clicou em editar
+            disable_btn_save_d_form = False; disable_btn_edit_d_form = True # Habilita Salvar, desabilita Editar
+            if effective_status_form == 'Deferido': disable_file_uploader_form = False
+        else: # Não clicou em editar (estado normal ou novo registro)
+            if effective_status_form == 'Passivo':
+                disable_btn_save_d_form = False # Salvar como passivo (novo ou existente)
+                if is_existing_record: disable_btn_edit_d_form = False # Pode editar se já é passivo e existe
+                else: disable_btn_edit_d_form = True # Não pode editar se é novo e passivo
+            elif effective_status_form == 'Deferido':
+                disable_file_uploader_form = False; disable_btn_send_d_form = False
+                if is_existing_record: disable_btn_edit_d_form = False # Pode editar se existente
+                else: disable_btn_save_d_form = False # Novo, apenas salvar
+            elif effective_status_form == 'Indeferido':
+                disable_btn_send_d_form = False
+                if is_existing_record: disable_btn_edit_d_form = False
+                else: disable_btn_save_d_form = False
+        if not is_existing_record: # Se for um novo registro (sem código de solicitação)
+            disable_btn_edit_d_form = True
+            disable_btn_send_d_form = True # Não pode enviar antes de salvar pela primeira vez
 
-        # Verifica se o tipo de processo contém "Projeto" e se há URLs na coluna correspondente
-        projeto_urls = treated_line_div.get("Docs Aprovação de Projeto", "")
-        if "aprovação de Projeto" in treated_line_div.get("Tipo Processo", "") \
-        and isinstance(projeto_urls, str) and projeto_urls.strip():
+        servidor_d_form_input = col5_f3.text_input("Servidor", value=treated_line_div.get("Servidor", st.session_state.get("sessao_servidor","")), key="form_d_servidor_input", disabled=True)
+        data_atendimento_d_form_input = col6_f3.text_input("Data At.", value=treated_line_div.get("Data Atendimento", ""), key="form_d_data_at_input", disabled=True)
+        data_modificacao_d_form_input = col7_f3.text_input("Data Mod.", value=treated_line_div.get("Data Modificação", ""), key="form_d_data_mod_input", disabled=True)
 
-            # -- aqui a mágica --
-            projeto_urls = [
-                f"https://{u.strip()}"
-                for u in projeto_urls.split("https://")
-                if u.strip()
-            ]
+        # --- Linha 4 do formulário (text_area e file_uploader) ---
+        col1_f4, col2_f4, col3_f4 = st.columns(3, vertical_alignment="top")
+        # ... (campos como estavam) ...
+        observacao_d_form_input = col1_f4.text_area("Observação", value=treated_line_div.get("Observação", ""), height=77, key="form_d_obs_input")
+        motivo_indeferimento_d_form_input = col2_f4.text_area("Motivo Indeferimento *", value=treated_line_div.get("Motivo Indeferimento", ""), height=77, key="form_d_motivo_ind_input")
+        cartao_protocolo_d_form_uploader = col3_f4.file_uploader(
+            "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'],
+            disabled=disable_file_uploader_form, key="form_d_cartao_prot_upload"
+        )
+        # --- Links e Botões de Ação ---
+        st.write("") # Espaçador para links
+        link_cols_r1_form = st.columns(4); link_cols_r2_form = st.columns(4)
+        all_link_cols_form = link_cols_r1_form + link_cols_r2_form; link_idx_form = 0
+        cabecalho_url_form_list = ["Docs Mesclados", "Decreto de Utilidade Pública", "CCMEI", "Ofício"]
+        for header_key_form in cabecalho_url_form_list:
+            url_val_form = treated_line_div.get(header_key_form)
+            if isinstance(url_val_form, str) and url_val_form.startswith("http") and link_idx_form < len(all_link_cols_form):
+                all_link_cols_form[link_idx_form].link_button(f"🔗 {header_key_form}", url_val_form, use_container_width=True); link_idx_form +=1
 
-            # Verifica se col2 foi usada
-            start_index = 0 if col_index == 0 else 1
-            col_btn_projeto = col_btn[start_index:] + col_btn_projeto
+        projeto_urls_form_list_val = treated_line_div.get("Docs Aprovação de Projeto", "")
+        if "aprovação de Projeto" in tipo_processo_d_input and isinstance(projeto_urls_form_list_val, str) and projeto_urls_form_list_val.strip():
+            projeto_urls_list_display = [f"https://{u.strip()}" for u in projeto_urls_form_list_val.split("https://") if u.strip()]
+            titulos_projeto_form = ["Localiz. e Situação", "Planta Baixa", "Layout", "Cortes"]
+            for i_form, url_proj_form in enumerate(projeto_urls_list_display):
+                if link_idx_form < len(all_link_cols_form):
+                    titulo_link_proj_form = titulos_projeto_form[i_form] if i_form < len(titulos_projeto_form) else f"Prancha {i_form+1}"
+                    all_link_cols_form[link_idx_form].link_button(f"🔗 {titulo_link_proj_form}", url_proj_form, use_container_width=True); link_idx_form +=1
+        st.write("") # Espaçador para botões de ação
 
-            titulos_iniciais = ["Localiz. e Situação", "Planta Baixa", "Layout", "Cortes"]
-            for i, url in enumerate(projeto_urls):
-                if i >= len(col_btn_projeto):
-                    break
-                # url já começa com http:// ou https://
-                if url.startswith("http"):
-                    titulo = titulos_iniciais[i] if i < len(titulos_iniciais) else f"Prancha {i+1}"
-                    with col_btn_projeto[i]:
-                        col_btn_projeto[i].link_button(
-                            titulo,
-                            url,
-                            icon=":material/link:",
-                            use_container_width=True
-                        )
-        st.write("")
-        st.write("")
+        action_cols_form = st.columns(8, vertical_alignment="bottom", gap="small")
+        btn_clear_d_form_submit = action_cols_form[7].form_submit_button("🧹 Limpar", use_container_width=True)
+        btn_save_d_form_submit = action_cols_form[6].form_submit_button("💾 Salvar", use_container_width=True, disabled=disable_btn_save_d_form, type='primary')
+        btn_edit_d_form_submit = action_cols_form[5].form_submit_button("📝 Editar", use_container_width=True, disabled=disable_btn_edit_d_form)
+        btn_send_d_form_submit = action_cols_form[4].form_submit_button("📧 Enviar", use_container_width=True, disabled=disable_btn_send_d_form, type='primary')
+        action_cols_form[3].link_button("📋 Requisitos", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0", use_container_width=True)
+        action_cols_form[2].link_button("🌍 GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", use_container_width=True)
 
-        if 'clicou_no_editar' not in st.session_state:
-            st.session_state.clicou_no_editar = False
+        # Lógica dos botões do formulário
+        if 'toast_msg_success' not in st.session_state: st.session_state.toast_msg_success = False
+        if st.session_state.toast_msg_success: st.toast("Dados salvos ✨✨"); st.session_state.toast_msg_success = False
+
+        def btn_clear_fn_form_d_action(rerun=True):
+            st.session_state.btn_clear_d = True
+            st.session_state.reload_div_df = True
+            load_div_df.clear()
+            st.session_state.clicou_no_editar_d = False
+            if rerun: st.rerun()
+
+        if btn_clear_d_form_submit: btn_clear_fn_form_d_action(rerun=True)
         
-        if st.session_state.clicou_no_editar:
-            st.session_state.disable_btn_edit_d = True
-            st.session_state.disable_btn_save_d = False
-            st.session_state.clicou_no_editar = False
+        if btn_ocorrencias_form: # Ação do novo botão de ocorrências
+            cpf_cnpj_para_ocorrencia = cpf_cnpj_d_form_input # Usar valor do campo CNPJ do formulário
+            if cpf_cnpj_para_ocorrencia: get_ocorrencias(cpf_cnpj_para_ocorrencia, "diversos") # Supondo que get_ocorrencias existe
+            else: st.toast("CPF/CNPJ necessário para buscar Ocorrências.")
         
-
-        col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8, vertical_alignment="bottom")
-        btn_clear_d = col8.form_submit_button("Limpar", use_container_width=True, disabled=False, icon=":material/ink_eraser:")
-        btn_save_d = col7.form_submit_button("Salvar", use_container_width=True, disabled=st.session_state.disable_btn_save_d, icon=":material/save:", type='primary')
-        btn_edit_d = col6.form_submit_button("Editar", use_container_width=True, disabled=st.session_state.disable_btn_edit_d, icon=":material/edit_note:")
-        btn_send_d = col5.form_submit_button("Enviar", use_container_width=True, disabled=st.session_state.disable_btn_send_d, icon=":material/mail:", type='primary')
-        btn_checklist = col4.link_button("Requisitos", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0",
-                                        use_container_width=True, disabled=False, icon=":material/manage_search:")
-        btn_gdoc_d = col3.link_button("GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", 
-                                use_container_width=True, disabled=False, icon=":material/public:")
+        if btn_cnpj_d_form:
+            cpf_cnpj_para_busca = cpf_cnpj_d_form_input
+            if cpf_cnpj_para_busca and (len(cpf_cnpj_para_busca) == 14 or len(cpf_cnpj_para_busca) == 18): 
+                get_cnpj(cpf_cnpj_para_busca, '', '') # Supondo que get_cnpj existe
+            else: st.toast(":orange[CNPJ/CPF inválido para busca.]")
         
-        
-        if 'toast_msg_success' not in st.session_state:
-            st.session_state.toast_msg_success = False
+        if 'clicou_no_editar_d' not in st.session_state: st.session_state.clicou_no_editar_d = False
+        if btn_edit_d_form_submit:
+            st.session_state.clicou_no_editar_d = True; st.rerun()
 
-        if st.session_state.toast_msg_success:
-            st.toast(f"Dados salvos ✨✨")
-            st.session_state.toast_msg_success = False
+        def save_in_sheet_d_action(btn_edit_mode_action: bool):
+            tipo_proc_save = tipo_processo_d_input
+            cod_sol_save = codigo_solicitacao_d_input
+            gdoc_save = gdoc_d_form_input
+            data_sol_save = data_solicitacao_d_input
+            divisao_save = divisao_d_form_selectbox # Pode ser None se placeholder selecionado
+            valor_manual_save = valor_manual_d_form_input
+            status_save = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
+            motivo_ind_save = motivo_indeferimento_d_form_input
+            razao_social_save = razao_social_d_form_input
+            cpf_cnpj_save = cpf_cnpj_d_form_input
+            email1_save = email1_d_form_input
+            email2_save = email2_d_form_input
+            obs_save = observacao_d_form_input
+            comp_valor_save = comp_valor_un_d_form_input
+            valor_unit_save = valor_un_d_form_input
 
-        def btn_clear_fn(rerun=bool):
-            st.session_state.disable_btn_save_d = True
-            st.session_state.disable_btn_edit_d = True
-            st.session_state.disable_btn_send_d = True
-            st.session_state.close_this_damn_json = True # janelinha json
-            st.session_state.disable_file_uploader = True
-
-            if rerun:
-                st.session_state.reload_div_df = True
-                st.session_state.btn_clear_d = True
-                st.rerun()
-        
-        if btn_clear_d:
-            st.session_state.close_this_damn_json = True # janelinha json
-            btn_clear_fn(rerun=True)
+            if not cod_sol_save:
+                st.toast("🔴 :red[**Código da Solicitação é obrigatório para salvar.**]"); return
+            if not tipo_proc_save : # Tipo de processo também é essencial para um novo registro
+                 st.toast("🔴 :red[**Tipo de Processo é obrigatório para salvar.**]"); return
 
 
-        def save_in_sheet(btn_edit: bool):
-            if tipo_processo_d and treated_line_div["Tipo Processo"]:  
-                # valor manual, status, motivo indeferimento e cartão do protocolo
-                divisao_list = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
-                treated_valor_manual_d = extrair_e_formatar_real(valor_manual_d)
-                if ((status_d == "Deferido" and validate_gdoc(gdoc_d, data_solicitacao_d) and divisao_d in divisao_list and treated_valor_manual_d) or 
-                    (status_d == "Indeferido" and len(motivo_indeferimento_d) > 10)):
-                    # sessao_servidor = "Daniel"
+            divisao_list_valid_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
+            treated_valor_manual_to_save = extrair_e_formatar_real(valor_manual_save)
+            gdoc_is_valid_to_save = validate_gdoc(gdoc_save, data_sol_save)
 
-                    worksheet = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
-                    cell = worksheet.find(codigo_solicitacao_d, in_column=1)
+            cond_deferido_to_save = (status_save == "Deferido" and gdoc_is_valid_to_save and (divisao_save in divisao_list_valid_save) and bool(treated_valor_manual_to_save))
+            cond_indeferido_to_save = (status_save == "Indeferido" and len(motivo_ind_save or "") > 10 and (divisao_save in divisao_list_valid_save) ) # Divisão também para indeferir
+            cond_passivo_to_save = (status_save == "Passivo") # Divisão não obrigatória para Passivo
+
+            if cond_deferido_to_save or cond_indeferido_to_save or cond_passivo_to_save:
+                worksheet_save_d = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
+                cell_save_d = worksheet_save_d.find(cod_sol_save, in_column=1)
+                is_new_record_form = not bool(cell_save_d)
+
+                if is_new_record_form:
+                    new_row_values = [
+                        cod_sol_save, data_sol_save, tipo_proc_save, razao_social_save, cpf_cnpj_save, "Válido",
+                        "", valor_unit_save, comp_valor_save, obs_save, email1_save, email2_save, "", "", "", "",
+                        cod_sol_save, treated_valor_manual_to_save if status_save == "Deferido" else valor_manual_save,
+                        status_save, st.session_state.get("sessao_servidor", ""),
+                        get_current_datetime() if status_save != "Passivo" else "",
+                        get_current_datetime() if status_save != "Passivo" else "",
+                        motivo_ind_save if status_save == "Indeferido" else "", "",
+                        gdoc_save if status_save != "Passivo" else "",
+                        divisao_save, # Salvar None se placeholder
+                        "Não", "", "", "", "" ]
+                    worksheet_save_d.append_row(new_row_values, value_input_option='USER_ENTERED')
+                    st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
+                    btn_clear_fn_form_d_action(rerun=True)
+                elif cell_save_d :
+                    servidor_atual_ws = worksheet_save_d.cell(cell_save_d.row, 20).value
+                    if servidor_atual_ws and servidor_atual_ws != st.session_state.get("sessao_servidor") and not btn_edit_mode_action and status_save != "Passivo":
+                        st.toast(f"🔴 :red[**Erro! Sol. já tratada por '{servidor_atual_ws}'.**]"); return
                     
-                    if cell:
-                        # Verifica a célula correspondente na coluna AC
-                        col_ac_index = 19  # Se a coluna AC é a 29ª (1-indexada), então a col T é 19
-                        ac_value = worksheet.cell(cell.row, col_ac_index).value
-                        if ac_value and not btn_edit:
-                            st.toast(f"**:red[Erro. Esta solicitação já foi salva pelo usuário {ac_value}.]**") 
-                        else:
-                            if status_d == 'Passivo':
-                               st.toast(f"**:red[Não é possível retornar a solicitação para a caixa 'Passivo'.]**")
-                            else:     
-                                range_div = f"Q{cell.row}:AA{cell.row}"
-                                
-                                data_atendimento_d = worksheet.acell(f'U{cell.row}').value
-                                if not data_atendimento_d:
-                                    data_atendimento_d = get_current_datetime()
-
-                                data_modificacao_d = get_current_datetime()
-                                cartao_protocolo_empty = ""
-                                response_d = "Não"
-
-                                # a ordem de save depende diretamente da ordem da tabela. Cuidado!
-                                values = [codigo_solicitacao_d, treated_valor_manual_d, status_d, st.session_state.sessao_servidor, data_atendimento_d, data_modificacao_d, motivo_indeferimento_d,
-                                        cartao_protocolo_empty, gdoc_d, divisao_d, response_d]
-                                worksheet.update(range_div, [values])
-                                st.session_state.load_div_df = True
-                                st.session_state.toast_msg_success = True
-                                btn_clear_fn(rerun=True)
-                    else:
-                        st.toast(f"**:red[Registro não salvo. cell está vazia]**")
-                else:
-                    if not validate_gdoc(gdoc_d, data_solicitacao_d):
-                        ano_atual = datetime.now().year
-                        dois_digitos = ano_atual % 100
-                        st.toast(f"O formato do núm. GDOC deve ser xx/{dois_digitos}.")
+                    data_at_ws = worksheet_save_d.cell(cell_save_d.row, 21).value
+                    link_cartao_ws = worksheet_save_d.cell(cell_save_d.row, 24).value or ""
+                    resp_ws = worksheet_save_d.cell(cell_save_d.row, 27).value or "Não"
+                    dt_at_final = data_at_ws if data_at_ws and status_save == "Passivo" else (get_current_datetime() if not data_at_ws and status_save != "Passivo" else data_at_ws)
+                    dt_mod_final = get_current_datetime() if status_save != "Passivo" else treated_line_div.get("Data Modificação","")
+                    servidor_final = st.session_state.get("sessao_servidor", "") if status_save != "Passivo" else treated_line_div.get("Servidor","")
+                    motivo_final = motivo_ind_save if status_save != "Passivo" else treated_line_div.get("Motivo Indeferimento", "")
+                    gdoc_final = gdoc_save if status_save != "Passivo" else treated_line_div.get("GDOC", "")
+                    divisao_final = divisao_save # Salvar None se placeholder
+                    valor_final_save_sheet = valor_manual_save
+                    if status_save == "Deferido" and treated_valor_manual_to_save: valor_final_save_sheet = treated_valor_manual_to_save
+                    elif status_save == "Passivo": valor_final_save_sheet = treated_line_div.get("Valor Manual", "")
+                    
+                    worksheet_save_d.update_acell(f'D{cell_save_d.row}', razao_social_save)
+                    worksheet_save_d.update_acell(f'E{cell_save_d.row}', cpf_cnpj_save)
+                    worksheet_save_d.update_acell(f'H{cell_save_d.row}', valor_unit_save)
+                    worksheet_save_d.update_acell(f'I{cell_save_d.row}', comp_valor_save)
+                    worksheet_save_d.update_acell(f'J{cell_save_d.row}', obs_save)
+                    worksheet_save_d.update_acell(f'K{cell_save_d.row}', email1_save)
+                    worksheet_save_d.update_acell(f'L{cell_save_d.row}', email2_save)
+                    values_upd_status_block = [ valor_final_save_sheet, status_save, servidor_final, dt_at_final, dt_mod_final, motivo_final, link_cartao_ws, gdoc_final, divisao_final, resp_ws ]
+                    range_upd_status_block = f"R{cell_save_d.row}:AA{cell_save_d.row}"
+                    worksheet_save_d.update(range_name=range_upd_status_block, values=[values_upd_status_block])
+                    st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
+                    btn_clear_fn_form_d_action(rerun=True)
             else:
-                st.toast("Erro. Preencha todos os campos obrigatórios.")
+                if status_save == "Deferido":
+                    if not gdoc_is_valid_to_save: st.toast(f"GDOC deve ser xx/AA.");
+                    elif not (divisao_save in divisao_list_valid_save): st.toast("Divisão inválida para Deferir.");
+                    elif not bool(treated_valor_manual_to_save): st.toast("Valor do DAM obrigatório e > R$ 0,00 para Deferir.");
+                elif status_save == "Indeferido":
+                    if not (divisao_save in divisao_list_valid_save): st.toast("Divisão inválida para Indeferir.");
+                    elif not (len(motivo_ind_save or "") > 10): st.toast("Motivo indeferimento curto.");
 
-        
-        
-        if btn_edit_d:
-            # st.session_state.close_this_damn_json = True # janelinha json
-            # st.session_state.clicou_no_editar = True   
-            # st.rerun()
-            save_in_sheet(btn_edit=True)
-             
-        if btn_save_d:
-            save_in_sheet(btn_edit=False)           
-            
-    
-        # enviar email
-        
-        if 'is_email_sended_d' not in st.session_state:
-            st.session_state.is_email_sended_d = False
-        
-        def is_email_sended():
-            worksheet = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
-            cell = worksheet.find(codigo_solicitacao_d, in_column=1)
-            range_div = f"AA{cell.row}"
-            value = "Sim"
-            worksheet.update(range_div, value)
-            st.session_state.load_div_df = True
-            st.session_state.is_email_sended_d = False
-            btn_clear_fn(rerun=True)
+        if btn_save_d_form_submit: save_in_sheet_d_action(st.session_state.clicou_no_editar_d)
 
-        def send_mail():
+        if 'is_email_sended_d' not in st.session_state: st.session_state.is_email_sended_d = False
+        def mark_email_as_sent_d_action():
+            cod_sol_email = codigo_solicitacao_d_input
+            ws_email = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
+            cell_email = ws_email.find(cod_sol_email, in_column=1)
+            if cell_email:
+                link_cartao_gdrive_email = st.session_state.get("gdrive_link_do_cartao_d", "")
+                if link_cartao_gdrive_email: ws_email.update_acell(f'X{cell_email.row}', link_cartao_gdrive_email)
+                ws_email.update_acell(f'AA{cell_email.row}', "Sim")
+            st.session_state.pop("gdrive_link_do_cartao_d", None); st.session_state.is_email_sended_d = False
+            st.session_state.clicou_no_editar_d = False; btn_clear_fn_form_d_action(rerun=True)
+
+        def send_mail_d_action():
+            status_send = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
+            gdoc_send = gdoc_d_form_input
+            divisao_send = divisao_d_form_selectbox # Pode ser None
             email_diversos(
-                kw_status = status_d,
-                kw_gdoc = gdoc_d,
-                kd_divisao = divisao_d,
-                kw_protocolo = codigo_solicitacao_d,
-                kw_data_sol = data_solicitacao_d,
-                kw_tipo_proc = tipo_processo_d,
-                kw_razao_social = razao_social_d,
-                kw_cpf_cnpj = cpf_cnpj_d,
-                kw_cartao_protocolo = cartao_protocolo_d,
-                kw_email1 = email1_d,
-                kw_email2 = email2_d,
-                kw_motivo_indeferimento = motivo_indeferimento_d,
-                )
-        
-        if btn_send_d:
-            # 
-            # refazer essa bagunça depois...
-            #
-            if tipo_processo_d and treated_line_div["Tipo Processo"] and valor_manual_d:
+                kw_status=status_send, kw_gdoc=gdoc_send, kd_divisao=divisao_send,
+                kw_protocolo=codigo_solicitacao_d_input, kw_data_sol=data_solicitacao_d_input,
+                kw_tipo_proc=tipo_processo_d_input, kw_razao_social=razao_social_d_form_input,
+                kw_cpf_cnpj=cpf_cnpj_d_form_input, kw_cartao_protocolo=cartao_protocolo_d_form_uploader,
+                kw_email1=email1_d_form_input, kw_email2=email2_d_form_input,
+                kw_motivo_indeferimento=motivo_indeferimento_d_form_input )
 
-                if status_d == "Deferido" and cartao_protocolo_d is None:
-                    st.toast(":red[**Cadê o cartão do protocolo?**]")
+        if btn_send_d_form_submit:
+            tipo_proc_send_btn = tipo_processo_d_input; cod_sol_send_btn = codigo_solicitacao_d_input
+            status_send_btn = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo"
+            divisao_send_btn = divisao_d_form_selectbox # Pode ser None
+            gdoc_send_btn = gdoc_d_form_input; data_sol_send_btn = data_solicitacao_d_input
+            cartao_send_btn = cartao_protocolo_d_form_uploader; motivo_send_btn = motivo_indeferimento_d_form_input
+            valor_manual_send_btn = valor_manual_d_form_input
+
+            if tipo_proc_send_btn and cod_sol_send_btn:
+                div_list_send = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
+                gdoc_valid_send = validate_gdoc(gdoc_send_btn, data_sol_send_btn)
+                prot_file_valid_send = False
+                if cartao_send_btn: prot_file_valid_send = validate_protocolo(cartao_send_btn.name, gdoc_send_btn)
+                val_manual_ok_send = bool(extrair_e_formatar_real(valor_manual_send_btn))
+
+                cond_def_send = (status_send_btn == "Deferido" and (divisao_send_btn in div_list_send) and gdoc_valid_send and cartao_send_btn and prot_file_valid_send and val_manual_ok_send)
+                # Para indeferir, a divisão também é importante para o template do email
+                cond_ind_send = (status_send_btn == "Indeferido" and (divisao_send_btn in div_list_send) and len(motivo_send_btn or "") > 10)
+
+                if cond_def_send or cond_ind_send:
+                    st.toast(f"Tentando responder '{cod_sol_send_btn}'. Aguarde..."); send_mail_d_action()
+                    if st.session_state.is_email_sended_d: mark_email_as_sent_d_action()
                 else:
-                    divisao_list = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
-                    if (divisao_d in divisao_list and
-                        (status_d == "Deferido" and validate_gdoc(gdoc_d, data_solicitacao_d) and cartao_protocolo_d and validate_protocolo(cartao_protocolo_d.name, gdoc_d)) or 
-                        (status_d == "Indeferido" and len(motivo_indeferimento_d) > 10)):
-                            st.toast(f"Tentando responder à '{codigo_solicitacao_d}'. Aguarde...")
-                            send_mail()
-                            if st.session_state.is_email_sended_d:
-                                is_email_sended()
-                                st.session_state.is_email_sended_d = False
-                    else: 
-                        if cartao_protocolo_d is None or not validate_protocolo(cartao_protocolo_d.name, gdoc_d):
-                            st.toast(":red[Tem certeza que o **cartão do protocolo** ou o **nº do processo** está correto?]")
-
-                        if not validate_gdoc(gdoc_d, data_solicitacao_d):
-                            ano_atual = datetime.now().year
-                            dois_digitos = ano_atual % 100
-                            st.toast(f"O formato do núm. GDOC deve ser xx/{dois_digitos}.")
-                                             
-            else:
-                st.toast(":red[Erro. Preencha todos os campos obrigatórios.]")
+                    if status_send_btn == "Deferido":
+                        if not (divisao_send_btn in div_list_send): st.toast("🔴 Divisão inválida p/ Envio Deferido.");
+                        elif not gdoc_valid_send: st.toast(f"🔴 Formato GDOC inválido.");
+                        elif not cartao_send_btn: st.toast("🔴 Cartão do protocolo não anexado.");
+                        elif not prot_file_valid_send: st.toast("🔴 Nome arquivo protocolo não corresponde ao GDOC.");
+                        elif not val_manual_ok_send: st.toast("🔴 Para Deferir, Valor DAM > R$ 0,00.");
+                    elif status_send_btn == "Indeferido":
+                        if not (divisao_send_btn in div_list_send): st.toast("🔴 Divisão inválida p/ Envio Indeferido.");
+                        elif not (len(motivo_send_btn or "") > 10): st.toast("🔴 Motivo indeferimento curto p/ Envio.");
+            else: st.toast("🔴 Cód. Solicitação e Tipo de Processo obrigatórios p/ Envio.");
