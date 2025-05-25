@@ -9,11 +9,10 @@ from typing import AsyncGenerator
 # "'Meta-Llama-4-Maverick-17B-128E-Instruct-FP8']. Tried to access Meta-Llama-3-8B-Instruct", 'type': 'team_model_access_denied', 
 # 'param': 'model', 'code': '401'}}
 
-
-
 options = ["DeepSeek-R1-Distill-Qwen-32B", "Meta-Llama-3-2-3B-Instruct", "DeepSeek-R1", "DeepSeek-R1-Distill-Qwen-14B", 
            "BAAI-bge-large-en-v1-5", "Meta-Llama-3-1-8B-Instruct-FP8", "DeepSeek-R1-Distill-Llama-70B", "Meta-Llama-3-3-70B-Instruct", 
            "Meta-Llama-4-Maverick-17B-128E-Instruct-FP8"]
+
 selection = st.pills("Modelos", options, selection_mode="single", default="Meta-Llama-4-Maverick-17B-128E-Instruct-FP8")
 
 # --- Configuração da API ---
