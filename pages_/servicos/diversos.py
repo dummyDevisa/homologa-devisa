@@ -175,7 +175,7 @@ with st.expander("Registro de Solicitações", expanded=True):
         DIV_TABLE_KEY = "div_table_selection"
         st.dataframe(
             div_df_display, key=DIV_TABLE_KEY, on_select="rerun", selection_mode="single-row",
-            column_config=column_config_div, height=224, use_container_width=True, hide_index=True )
+            column_config=column_config_div, height=142, use_container_width=True, hide_index=True )
         
         total_exibido_div = len(div_df_display)
         badge_text_div = f"Exibindo: {total_exibido_div}"
@@ -262,7 +262,7 @@ with st.expander("Registro de Solicitações", expanded=True):
         current_hist_div_df_display_final = st.session_state.hist_div_df_display.reset_index(drop=True)
         st.dataframe(
             current_hist_div_df_display_final, key=MERGED_DIV_TABLE_KEY, on_select="rerun", selection_mode="single-row",
-            column_config=column_config_merged_div, height=224, use_container_width=True, hide_index=True )
+            column_config=column_config_merged_div, height=142, use_container_width=True, hide_index=True )
         total_exibido_hist_div = len(current_hist_div_df_display_final)
         st.badge(f"Exibindo Histórico: {total_exibido_hist_div}", color="green")
 

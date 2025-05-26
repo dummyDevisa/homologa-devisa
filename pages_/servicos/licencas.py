@@ -211,7 +211,7 @@ with st.expander("Registro de Solicitações", expanded=True):
         LF_TABLE_KEY = "lf_table_selection"
         st.dataframe(
             lf_df_filtrado, key=LF_TABLE_KEY, on_select="rerun", selection_mode="single-row",
-            column_config=column_config_lf, height=224, use_container_width=True, hide_index=True
+            column_config=column_config_lf, height=142, use_container_width=True, hide_index=True, 
         )
         
         total_exibido_lf = len(lf_df_filtrado)
@@ -223,13 +223,13 @@ with st.expander("Registro de Solicitações", expanded=True):
             
             if "Respondido" in base_df_for_badge_lf.columns:
                 total_nao_respondidos_badge_lf = len(base_df_for_badge_lf[base_df_for_badge_lf['Respondido'] == 'Não'])
-                badge_text_lf += f"   ⬗   Passivo: {total_passivos_badge_lf}   ⬗   Não respondidos: {total_nao_respondidos_badge_lf}"
+                badge_text_lf += f" ~ Passivo: {total_passivos_badge_lf} ~ Não respondidos: {total_nao_respondidos_badge_lf}"
             else:
-                badge_text_lf += f"   ⬗   Passivo: {total_passivos_badge_lf}   ⬗   Não respondidos: N/A"
+                badge_text_lf += f" ~ Passivo: {total_passivos_badge_lf} ~ Não respondidos: N/A"
             
             st.badge(badge_text_lf, color="blue")
         else:
-            st.badge(f"Exibindo: {total_exibido_lf}   ⬗   Totais Gerais: N/A", color="grey")
+            st.badge(f"Exibindo: {total_exibido_lf} ~ Total Geral: N/A", color="grey")
 
 
         selected_row_lf_df = pd.DataFrame()
@@ -347,7 +347,7 @@ with st.expander("Registro de Solicitações", expanded=True):
         current_gh_col2_df_display = st.session_state.aggrid_gh_col2.reset_index(drop=True)
         st.dataframe(
             current_gh_col2_df_display, key=MERGED_TABLE_KEY, on_select="rerun", selection_mode="single-row",
-            column_config=column_config_merged, height=224, use_container_width=True, hide_index=True
+            column_config=column_config_merged, height=142, use_container_width=True, hide_index=True
         )
         total_exibido_hist = len(current_gh_col2_df_display)
         st.badge(f"Exibindo: {total_exibido_hist}", color="green")
