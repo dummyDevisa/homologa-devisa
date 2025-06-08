@@ -418,21 +418,20 @@ def extrair_e_formatar_real(valor: str) -> str:
     return ""
 
 
-def hint_financial_values(min, max, comp):
-    resp = ''
-    if min:
-        if max or comp:
-            resp += f'Valor mínimo: {min}; '
-        else:
-            resp += f'Valor mínimo: {min}.'
-    if max:
-        if comp:
-            resp += f'Valor máximo: {max}; '
-        else:
-            resp += f'Valor máximo: {max}.' 
-    if comp:
-        resp += f'Tipo: {comp}.'
-    return resp
+def hint_financial_values_revised(min_val_str, max_val_str, comp_str):
+    parts = []
+    if min_val_str and min_val_str != "R$ 0,00":
+        parts.append(f"Valor mínimo: {min_val_str}")
+    if max_val_str and max_val_str != "R$ 0,00":
+        # Avoid redundant info if min == max and both are present
+        if not (min_val_str and min_val_str != "R$ 0,00" and min_val_str == max_val_str):
+            parts.append(f"Valor máximo: {max_val_str}")
+    if comp_str:
+        parts.append(f"Tipo: {comp_str}")
+
+    if not parts:
+        return ""
+    return "; ".join(parts) + "."
 
 # Função para obter a data e hora atuais no formato UTC-3
 def get_current_datetime():
@@ -588,7 +587,7 @@ def show_dadosCnpj(display_data: dict, cnaes_finais: list, socios: list, this_ta
 
     municipio = display_data.get('municipio', 'N/A')
     uf = display_data.get('uf', 'N/A')
-    municipio_cor = ":green" if municipio.upper() == "BELEM" else ":blue" # Usar azul como neutro se não for Belém
+    municipio_cor = ":green" if municipio.upper() == "BELEM" else ":red" # Usar vermelho se não for Belém
     st.write(f"Município: **{municipio_cor}[{municipio} / {uf}]**")
 
     # --- Situação MEI ---
@@ -658,11 +657,11 @@ def show_dadosCnpj(display_data: dict, cnaes_finais: list, socios: list, this_ta
     if this_taxas:
         match this_taxas:
             case 'ok':
-                st.write(f"CNAEs (DAM): :green[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Todos os CNAEs da DAM constam no CNPJ)]")
+                st.write(f"CNAEs (DAM): :green[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Todos os CNAEs constam no CNPJ)]")
             case 'parcial':
-                st.write(f"CNAEs (DAM): :orange[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Estes CNAEs da DAM NÃO constam no CNPJ)]")
+                st.write(f"CNAEs (DAM): :orange[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (Estes CNAEs NÃO constam no CNPJ)]")
             case 'cnae ausente':
-                st.write(f"CNAEs (DAM): :red[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (NENHUM destes CNAEs da DAM consta no CNPJ)]")
+                st.write(f"CNAEs (DAM): :red[**{lista_cnaes_str if lista_cnaes_str else 'N/A'}** (NENHUM destes CNAEs consta no CNPJ)]")
             case 'sem cnae':
                  st.write(f"CNAEs (DAM): :red[**CNPJ não possui CNAEs válidos para comparação.**]")
                  # Opcional: Mostrar os CNAEs da DAM que eram esperados
@@ -1069,242 +1068,157 @@ def process_cnpj_data(api_data: dict, api_source: str, yy: str, lista_dam: str):
 
 
 
-def get_cnpj(cnpj: str, yy: str, lista_dam: str):
+# --- FUNÇÃO NÚCLEO (INTERNA) ---
+
+def _fetch_cnpj_data(t_cnpj: str):
     """
-    Busca dados do CNPJ em múltiplos endpoints e processa o primeiro resultado bem-sucedido.
+    Função interna que itera sobre as APIs para buscar dados de um CNPJ.
 
     Args:
-        cnpj (str): O número do CNPJ (pode conter máscara).
-        yy (str): Identificador do contexto/formulário (ex: 'cnpj_digitacao_lf').
-        lista_dam (str): Parâmetro adicional (uso não especificado no exemplo).
+        t_cnpj (str): CNPJ limpo, contendo apenas dígitos.
 
     Returns:
-        bool: True se a consulta e o processamento foram bem-sucedidos, False caso contrário.
+        tuple: Uma tupla contendo (dados_json, nome_da_api) em caso de sucesso,
+               ou (None, None, ultima_mensagem_erro) em caso de falha.
     """
-    # 1. Validar e Limpar CNPJ
-    try:
-        t_cnpj = re.sub(r"\D", "", cnpj)
-        if not t_cnpj or len(t_cnpj) != 14:
-            st.toast(f":orange[CNPJ inválido ou vazio: {cnpj}]")
-            print(f"CNPJ inválido fornecido: {cnpj} -> {t_cnpj}")
-            return False
-    except Exception as e:
-        st.toast(f":red[Erro ao processar CNPJ: {e}]")
-        print(f"Erro ao limpar CNPJ '{cnpj}': {e}")
-        return False
-
-    # 2. Limpar campos do formulário (se aplicável)
-    if yy == 'cnpj_digitacao_lf':
-        # Limpa apenas se o contexto for o correto
-        st.session_state.fi_logradouro = ""
-        st.session_state.fi_razao_social = ""
-        st.session_state.fi_complemento = ""
-        st.session_state.fi_numero = ""
-        st.session_state.fi_bairro = ""
-        st.session_state.fi_cep = ""
-        # Adicione outros campos que precisam ser limpos
-
-    # 3. Definir Endpoints e Configurações
+    # Ordem de preferência definida pelo usuário
     endpoints_config = [
-        {"url": f"https://receitaws.com.br/v1/cnpj/{t_cnpj}", "name": "ReceitaWS", "timeout": 5},
-        {"url": f"https://publica.cnpj.ws/cnpj/{t_cnpj}", "name": "Publica CNPJ.ws", "timeout": 5},   
-        {"url": f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}", "name": "BrasilAPI", "timeout": 5},
-        {"url": f"https://open.cnpja.com/office/{t_cnpj}", "name": "CNPJá", "timeout": 5}, # Geralmente requer autenticação
+        {"name": "ReceitaWS", "url": f"https://receitaws.com.br/v1/cnpj/{t_cnpj}"},
+        {"name": "Publica CNPJ.ws", "url": f"https://publica.cnpj.ws/cnpj/{t_cnpj}"},
+        {"name": "BrasilAPI", "url": f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}"},
+        {"name": "CNPJá", "url": f"https://open.cnpja.com/office/{t_cnpj}"},
     ]
-    headers = {'User-Agent': 'streamlitapp/1.0'} # Boa prática
+    
+    headers = {'User-Agent': 'MeuAppStreamlit/1.0'}
+    timeout = 3  # Timeout reduzido para 3 segundos, mais adequado para UI.
 
-    # 4. Iterar e Tentar Consultar
-    api_data = None
-    api_source = None
-    last_error_message = "Nenhuma fonte respondeu com sucesso." # Default error message
+    last_error_message = "Nenhuma API respondeu com sucesso."
 
     for config in endpoints_config:
-        url = config["url"]
-        name = config["name"]
-        timeout = config["timeout"]
-        print(f"Tentando API: {name} - {url}") # Log para debug
+        name, url = config["name"], config["url"]
+        print(f"Tentando API: {name}...")
 
         try:
             response = requests.get(url, headers=headers, timeout=timeout)
 
-            # --- Verificação da Resposta ---
             if response.status_code == 200:
                 try:
                     data = response.json()
-                    # Verificar se a resposta não é uma mensagem de erro comum da API
-                    # Exemplo específico para ReceitaWS que retorna 200 com status ERROR
-                    if name == "ReceitaWS" and isinstance(data, dict) and data.get("status") == "ERROR":
-                         last_error_message = f"{name} retornou erro interno: {data.get('message', 'Detalhe não informado')}"
-                         print(last_error_message)
-                         continue # Tenta o próximo
+                    # Verificação de mensagens de erro dentro de uma resposta 200 OK
+                    if isinstance(data, dict):
+                        if data.get("status") == "ERROR":
+                            last_error_message = f"{name}: {data.get('message', 'Erro interno')}"
+                            continue # Tenta a próxima API
+                        if "não encontrado" in data.get("message", "").lower():
+                            last_error_message = f"{name}: CNPJ não encontrado."
+                            continue # Tenta a próxima API
 
-                    # Exemplo genérico para outras APIs que possam retornar 200 com { "message": "..." }
-                    if isinstance(data, dict) and data.get("message") and ("inválido" in data["message"].lower() or "não encontrado" in data["message"].lower()):
-                         last_error_message = f"{name} reportou: {data['message']}"
-                         print(last_error_message)
-                         continue # Tenta o próximo
-
-                    # --- Sucesso ---
-                    api_data = data
-                    api_source = name # Usar o nome legível como fonte
-                    st.toast(f"✅ Consulta via {name} bem-sucedida.")
-                    break # Sai do loop na primeira resposta bem-sucedida
+                    print(f"Sucesso com {name}!")
+                    return data, name, None  # Sucesso! Retorna dados, fonte e nenhum erro.
 
                 except requests.exceptions.JSONDecodeError:
-                    last_error_message = f"Resposta inválida (não JSON) de {name}"
-                    print(f"Erro: {last_error_message} | Status: {response.status_code} | URL: {url}")
-                    continue # Tenta o próximo
-
-            # --- Tratamento de Status Codes de Erro ---
+                    last_error_message = f"{name} retornou uma resposta inválida."
+            
+            # Tratamento de outros status HTTP
             elif response.status_code == 404:
-                 last_error_message = f"{name} falhou: CNPJ não encontrado (404)."
-                 print(last_error_message)
-                 # Não necessariamente um erro grave, apenas não achou lá. Continua.
+                last_error_message = f"{name}: CNPJ não encontrado (404)."
             elif response.status_code == 429:
-                 last_error_message = f"{name} falhou: Limite de requisições (429)."
-                 print(f"{last_error_message} Aguardando um pouco...")
-                 time.sleep(0.5) # Pequena pausa antes de tentar o próximo
+                last_error_message = f"{name}: Limite de requisições atingido (429)."
+                time.sleep(0.5) # Pequena pausa antes de tentar a próxima
             else:
-                 last_error_message = f"{name} falhou com status: {response.status_code}."
-                 print(last_error_message)
-                 # Considerar outros status codes (e.g., 401, 403, 5xx) se necessário
+                last_error_message = f"{name} falhou (Status {response.status_code})."
 
-        # --- Tratamento de Exceções de Rede ---
         except requests.exceptions.Timeout:
-            last_error_message = f"Timeout ({timeout}s) ao conectar com {name}"
-            print(f"Erro: {last_error_message} | URL: {url}")
-        except requests.exceptions.RequestException as e:
-            last_error_message = f"Erro de conexão com {name}: {e}"
-            print(f"Erro: {last_error_message} | URL: {url}")
-        except Exception as e:
-            # Captura qualquer outro erro inesperado durante a tentativa desta API
-            last_error_message = f"Erro inesperado ao consultar {name}: {e}"
-            print(f"Erro inesperado: {last_error_message} | URL: {url}")
+            last_error_message = f"{name} não respondeu a tempo ({timeout}s)."
+        except requests.exceptions.RequestException:
+            last_error_message = f"Erro de conexão com {name}."
+        
+        print(f"Falha: {last_error_message}")
 
-        # Continua para o próximo endpoint se houve falha ou erro nesta iteração
+    # Se o loop terminar, nenhuma API funcionou
+    print(f"Consulta final falhou para o CNPJ {t_cnpj}. Último erro: {last_error_message}")
+    return None, None, last_error_message
 
-    # 5. Processamento Final
-    if api_data and api_source:
-        try:
-            # Chama a função para processar/exibir os dados encontrados
-            process_cnpj_data(api_data, api_source, yy, lista_dam)
-            return True # Indica sucesso geral
-        except Exception as e:
-            st.toast(f":red[Erro ao processar dados da {api_source}: {e}]")
-            print(f"Erro em process_cnpj_data: {e}")
-            # Tratar erro específico do Streamlit se necessário
-            error_str = str(e)
-            if 'Only one dialog is allowed' in error_str:
-                pass # Ignora erro comum do toast
-            return False # Falha no processamento
-    else:
-        # Nenhuma API retornou sucesso
-        st.toast(f":red[Consulta falhou. Último erro: {last_error_message}]")
-        print(f"Falha final ao consultar CNPJ {t_cnpj}. Último erro: {last_error_message}")
-        return False # Indica falha geral
 
-def get_cnpj_raw(cnpj):
+# --- FUNÇÕES PÚBLICAS REATORADAS ---
+
+def get_cnpj(cnpj: str, yy: str, lista_dam: str):
     """
-    Consulta um CNPJ em múltiplos endpoints e retorna o JSON do primeiro sucesso.
+    Busca e processa dados de um CNPJ, atualizando o formulário do Streamlit.
+    Retorna o primeiro resultado bem-sucedido das APIs configuradas.
 
     Args:
-        cnpj (str): O número do CNPJ (pode conter máscara).
+        cnpj (str): O CNPJ a ser consultado (com ou sem máscara).
+        yy (str): Identificador do contexto/formulário.
+        lista_dam (str): Parâmetro adicional para processamento.
 
     Returns:
-        dict or bool: Retorna um dicionário com os dados do CNPJ se encontrado,
-                      ou False se nenhum endpoint responder com sucesso.
+        bool: True se a consulta e o processamento foram bem-sucedidos, False caso contrário.
     """
-    # 1. Limpa o CNPJ, removendo caracteres não numéricos
     try:
         t_cnpj = re.sub(r"\D", "", cnpj)
         if not t_cnpj or len(t_cnpj) != 14:
-             st.toast(f":orange[CNPJ inválido: {cnpj}]")
-             print(f"CNPJ inválido fornecido: {cnpj} -> {t_cnpj}")
-             return False
-    except Exception as e:
-        st.toast(f":red[Erro ao processar CNPJ: {e}]")
-        print(f"Erro ao limpar CNPJ '{cnpj}': {e}")
+            st.toast("⚠️ CNPJ inválido ou vazio.")
+            return False
+    except Exception:
+        st.toast("❌ Erro ao formatar o CNPJ.")
         return False
 
-    # 2. Define a lista de endpoints a serem tentados
-    endpoints = [
-        f"https://publica.cnpj.ws/cnpj/{t_cnpj}", # Movido para cima, costuma ser rápido
-        f"https://receitaws.com.br/v1/cnpj/{t_cnpj}", # Pode ter limites/custo
-        f"https://open.cnpja.com/office/{t_cnpj}", # Frequentemente requer chave/autenticação
-        f"https://brasilapi.com.br/api/cnpj/v1/{t_cnpj}",
-    ]
+    # Limpa os campos do formulário antes da nova consulta
+    if yy == 'cnpj_digitacao_lf':
+        for key in ['fi_razao_social', 'fi_logradouro', 'fi_numero', 'fi_complemento', 'fi_bairro', 'fi_cep']:
+            if hasattr(st.session_state, key):
+                st.session_state[key] = ""
+    
+    with st.spinner("Consultando CNPJ..."):
+        api_data, api_source, error_message = _fetch_cnpj_data(t_cnpj)
 
-    # 3. Itera sobre os endpoints
-    last_error_message = "Nenhuma fonte respondeu." # Default error
-
-    for url in endpoints:
-        print(f"Tentando endpoint: {url}") # Log para debug
+    if api_data and api_source:
+        st.toast(f"✅ Dados encontrados via {api_source}.")
         try:
-            # Adiciona um timeout para evitar que a requisição fique presa indefinidamente
-            response = requests.get(url, timeout=5) # Timeout de 10 segundos
-
-            # 4. Verifica se a resposta foi bem-sucedida (status code 200)
-            if response.status_code == 200:
-                try:
-                    dados = response.json()
-                    print(f"Sucesso! Dados encontrados em {url.split('/')[2]}")
-                    # Verifica se a resposta não é uma mensagem de erro comum da API
-                    if isinstance(dados, dict) and dados.get("message") and "CNPJ inválido" in dados["message"]:
-                         last_error_message = f"API {url.split('/')[2]} reportou CNPJ inválido."
-                         print(last_error_message)
-                         continue # Tenta o próximo endpoint
-                    elif isinstance(dados, dict) and dados.get("status") == "ERROR":
-                         last_error_message = f"API {url.split('/')[2]} reportou erro: {dados.get('message', 'Erro desconhecido')}"
-                         print(last_error_message)
-                         continue # Tenta o próximo endpoint
-
-                    return dados  # Retorna os dados JSON imediatamente
-                except requests.exceptions.JSONDecodeError:
-                    last_error_message = f"Resposta inválida (não JSON) de {url.split('/')[2]}"
-                    print(f"Erro: {last_error_message} | Status: {response.status_code}")
-                    # Continua para o próximo endpoint
-                    continue
-
-            # Se não for 200, registra o erro e continua
-            else:
-                last_error_message = f"Endpoint {url.split('/')[2]} respondeu com status {response.status_code}"
-                print(f"Falha: {last_error_message}")
-                # Adiciona uma pequena pausa se for erro de rate limit (429)
-                if response.status_code == 429:
-                    print("Rate limit atingido, aguardando antes de tentar o próximo...")
-                    time.sleep(1) # Espera 1 segundo
-
-        # 5. Captura erros de conexão, timeout, etc.
-        except requests.exceptions.Timeout:
-            last_error_message = f"Timeout ao tentar conectar com {url.split('/')[2]}"
-            print(f"Erro: {last_error_message}")
-            # Continua para o próximo endpoint
-            continue
-        except requests.exceptions.RequestException as e:
-            last_error_message = f"Erro de conexão com {url.split('/')[2]}: {e}"
-            print(f"Erro: {last_error_message}")
-            # Continua para o próximo endpoint
-            continue
+            # Chama a função externa para preencher o formulário
+            process_cnpj_data(api_data, api_source, yy, lista_dam)
+            return True
         except Exception as e:
-            # Captura qualquer outro erro inesperado
-            last_error_message = f"Erro inesperado ao consultar {url.split('/')[2]}: {e}"
-            print(f"Erro inesperado: {last_error_message}")
-            # Continua para o próximo endpoint
-            continue
+            st.toast(f"❌ Erro ao processar dados de {api_source}.")
+            print(f"Erro em process_cnpj_data: {e}")
+            return False
+    
+    # Se falhou, exibe a mensagem de erro final.
+    st.toast(f"❌ Falha na consulta. {error_message}")
+    return False
 
-    # 6. Se o loop terminar sem sucesso, nenhum endpoint funcionou
-    print(f"Todas as tentativas falharam para o CNPJ {t_cnpj}.")
+
+def get_cnpj_raw(cnpj: str):
+    """
+    Busca e retorna os dados brutos (JSON) de um CNPJ.
+    Retorna o primeiro resultado bem-sucedido das APIs configuradas.
+
+    Args:
+        cnpj (str): O CNPJ a ser consultado (com ou sem máscara).
+
+    Returns:
+        dict or bool: Um dicionário com os dados brutos ou False em caso de falha.
+    """
     try:
-        st.toast(f":red[Não foi possível consultar o CNPJ. Último erro: {last_error_message}]")
-    except Exception as e_toast:
-        error_str = str(e_toast)
-        if 'Only one dialog is allowed' in error_str:
-            pass  # Ignora erro comum do streamlit se já houver um toast ativo
-        else:
-            # Loga outros erros do toast, mas não impede o retorno
-            print(f":red[Erro ao exibir toast final: {e_toast}]")
+        t_cnpj = re.sub(r"\D", "", cnpj)
+        if not t_cnpj or len(t_cnpj) != 14:
+            st.toast("⚠️ CNPJ inválido ou vazio.")
+            return False
+    except Exception:
+        st.toast("❌ Erro ao formatar o CNPJ.")
+        return False
 
-    return False # Retorna False indicando falha geral
+    with st.spinner("Consultando dados brutos do CNPJ..."):
+        api_data, api_source, error_message = _fetch_cnpj_data(t_cnpj)
+
+    if api_data:
+        st.toast(f"✅ Dados brutos encontrados via {api_source}.")
+        return api_data
+    
+    # Se falhou, exibe a mensagem de erro final.
+    st.toast(f"❌ Falha na consulta. {error_message}")
+    return False
 
 
 def fill_form_lf(n_proc, ano):     

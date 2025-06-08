@@ -508,10 +508,48 @@ if st.session_state.btn_clear_lf:
     st.session_state.sel_merged_lf = pd.DataFrame() # Limpa o DataFrame de linha selecionada do histórico
     st.session_state.last_selected_merged_index = None # Reseta o último índice selecionado do histórico
     original_selected_index_lf = None # Reseta a seleção original
-    st.session_state.selected_index_lf = None # Reseta o índice selecionado
+    st.session_state.selected_index_lf = None
 
 
 show_expander_2 = bool("Código Solicitação" in treated_line_lf and len(str(treated_line_lf.get("Código Solicitação",""))) > 1)
+
+# --- INÍCIO DA MODIFICAÇÃO ---
+# Lógica de gerenciamento do Session State para Selectboxes do formulário LF
+status_options_form_sel = ['Passivo', 'Deferido', 'Indeferido']
+divisao_options_form_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
+is_record_loaded_for_form = show_expander_2
+
+# --- Lógica para Selectbox "Status *" ---
+if is_record_loaded_for_form:
+    status_from_data = str(treated_line_lf.get("Status", "")).strip()
+    if status_from_data in status_options_form_sel:
+        st.session_state.form_status_lf_sel = status_from_data
+    else:
+        # Se o status da planilha for "" ou inválido, o placeholder deve ser mostrado.
+        # Para isso, a chave do selectbox no session_state não deve existir.
+        if 'form_status_lf_sel' in st.session_state:
+            del st.session_state.form_status_lf_sel
+else:
+    # Se nenhum registro estiver carregado, limpa o estado para garantir que o placeholder apareça.
+    if 'form_status_lf_sel' in st.session_state:
+        del st.session_state.form_status_lf_sel
+
+# --- Lógica para Selectbox "Divisão *" ---
+if is_record_loaded_for_form:
+    divisao_from_data = str(treated_line_lf.get("Divisão", "")).strip()
+    if divisao_from_data in divisao_options_form_sel:
+        st.session_state.form_divisao_lf_sel = divisao_from_data
+    else:
+        # Se a divisão da planilha for "" ou inválida, limpa o estado.
+        if 'form_divisao_lf_sel' in st.session_state:
+            del st.session_state.form_divisao_lf_sel
+else:
+    # Se nenhum registro estiver carregado, limpa o estado.
+    if 'form_divisao_lf_sel' in st.session_state:
+        del st.session_state.form_divisao_lf_sel
+# --- FIM DA MODIFICAÇÃO ---
+
+
 with st.expander("Detalhes da solicitação", expanded=show_expander_2):
     st.write("")
     with st.form("form_licencas", border=False):
@@ -570,27 +608,23 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
         with container2:
             col1_c2_form, col2_c2_form, col3_c2_form, col4_c2_form = st.columns(4, vertical_alignment="bottom")
             
-            # MODIFICAÇÃO: Status - remover '' e adicionar placeholder
-            status_options_form_sel = ['Passivo', 'Deferido', 'Indeferido'] 
-            current_status_form_val = treated_line_lf.get("Status", "")
-            status_index_lf_form = None
-            if current_status_form_val and current_status_form_val in status_options_form_sel:
-                status_index_lf_form = status_options_form_sel.index(current_status_form_val)
-            
+            # --- INÍCIO DA MODIFICAÇÃO ---
+            # Lógica de pré-seleção para Status agora é gerenciada pelo session_state
             status_lf_selectbox = col1_c2_form.selectbox(
-                "Status *", 
-                status_options_form_sel, 
-                index=status_index_lf_form, 
+                "Status *",
+                options=status_options_form_sel,
+                index=None,  # Garante que o placeholder seja usado se a key não estiver no session_state
                 key="form_status_lf_sel",
                 placeholder="..."
             )
+            # --- FIM DA MODIFICAÇÃO ---
 
             # Lógica para habilitar/desabilitar botões e campos baseada no status_lf_selectbox
             disable_file_uploader_form = True
             disable_btn_save_lf_form = True
             disable_btn_send_lf_form = True
 
-            # MODIFICAÇÃO: Tratar status_lf_selectbox == None (placeholder selecionado)
+            # Tratar status_lf_selectbox == None (placeholder selecionado)
             # Se o placeholder estiver selecionado para Status, consideramos como 'Passivo' para a lógica de UI
             effective_status_for_ui = status_lf_selectbox if status_lf_selectbox is not None else "Passivo"
 
@@ -604,20 +638,16 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 disable_btn_save_lf_form = False
                 disable_btn_send_lf_form = False
             
-            # MODIFICAÇÃO: Divisão - remover '' e adicionar placeholder
-            divisao_options_form_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM']
-            current_divisao_form_val = treated_line_lf.get("Divisão", "")
-            divisao_index_form = None
-            if current_divisao_form_val and current_divisao_form_val in divisao_options_form_sel:
-                divisao_index_form = divisao_options_form_sel.index(current_divisao_form_val)
-            
+            # --- INÍCIO DA MODIFICAÇÃO ---
+            # Lógica de pré-seleção para Divisão agora é gerenciada pelo session_state
             divisao_lf_selectbox = col2_c2_form.selectbox(
-                "Divisão *", 
-                divisao_options_form_sel, 
-                index=divisao_index_form, 
+                "Divisão *",
+                options=divisao_options_form_sel,
+                index=None, # Garante que o placeholder seja usado se a key não estiver no session_state
                 key="form_divisao_lf_sel",
                 placeholder="..."
             )
+            # --- FIM DA MODIFICAÇÃO ---
 
             gdoc_lf_input = col3_c2_form.text_input("GDOC/Ano (xx/AA) *", value=treated_line_lf.get("GDOC", ""), key="form_gdoc_lf_input")
             valor_manual_val_form = treated_line_lf.get("Valor Manual", "R$ 0,00") # Default para nova entrada
@@ -666,7 +696,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                     with st.spinner("Salvando dados, aguarde..."):
                         divisao_list_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM'] # Divisões válidas
                         
-                        # MODIFICAÇÃO: Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
+                        # Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
                         status_to_save = status_lf_selectbox if status_lf_selectbox is not None else "Passivo"
                         # Divisão pode ser None se o placeholder for selecionado
                         divisao_to_save = divisao_lf_selectbox 
@@ -761,7 +791,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             if 'is_email_sended_lf' not in st.session_state: st.session_state.is_email_sended_lf = False
             
             def mark_email_as_sent_form_action():
-                # MODIFICAÇÃO: Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
+                # Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
                 status_for_email_logic = status_lf_selectbox if status_lf_selectbox is not None else "Passivo"
 
                 worksheet_email = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
@@ -780,7 +810,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 btn_clear_fn_form_action(rerun=True)
             
             def send_mail_form_action():
-                # MODIFICAÇÃO: Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
+                # Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
                 status_for_send = status_lf_selectbox if status_lf_selectbox is not None else "Passivo"
                 # Divisão pode ser None
                 divisao_for_send = divisao_lf_selectbox
@@ -804,7 +834,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             
             if btn_send_lf_form:
                 if codigo_solicitacao_lf_form_input and tipo_processo_lf:
-                    # MODIFICAÇÃO: Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
+                    # Usar 'Passivo' se o status_lf_selectbox for None (placeholder)
                     status_for_send_action = status_lf_selectbox if status_lf_selectbox is not None else "Passivo"
                     # Divisão pode ser None
                     divisao_for_send_action = divisao_lf_selectbox

@@ -68,10 +68,6 @@ if 'secondary_pills_selection_div' not in st.session_state:
 st.session_state.checkbox_minhas_d = "As minhas" in st.session_state.secondary_pills_selection_div
 st.session_state.checkbox_nao_respondidas_d = "Não resp." in st.session_state.secondary_pills_selection_div
 
-# MOVIDO load_df_2025 para dentro de coly mais abaixo.
-# if 'df_geral_2025' not in st.session_state or st.session_state.df_geral_2025 is None:
-#    st.session_state.df_geral_2025 = load_df_2025()
-
 with st.expander("Registro de Solicitações", expanded=True):
     colx, coly = st.columns(2, vertical_alignment="top")
     
@@ -215,7 +211,6 @@ with st.expander("Registro de Solicitações", expanded=True):
         with col2_y_dummy:
             st.selectbox("Teste 2 (desabilitado)", opcoes_filtro_dummy_div, index=1, disabled=True, label_visibility='collapsed', key="dummy_test2_coly_div")
 
-        # MOVIDO AQUI
         if 'df_geral_2025' not in st.session_state or st.session_state.df_geral_2025 is None:
             st.session_state.df_geral_2025 = load_df_2025()
         
@@ -320,7 +315,6 @@ with st.expander("Registro de Solicitações", expanded=True):
             elif current_sel_index_dialog_div is None: st.session_state.last_selected_merged_div_index = None
             if st.session_state.get('show_details_dialog_trigger_div', False):
                 show_data_dialog_div(st.session_state.sel_merged_div_df); st.session_state.show_details_dialog_trigger_div = False
-# --- Fim do Expander ---
 
 if 'div_empty_df' not in st.session_state:
     if 'div_df' in st.session_state and not st.session_state.div_df.empty:
@@ -355,42 +349,58 @@ show_expander_2 = bool("Código Solicitação" in treated_line_div and len(str(t
 with st.expander("Detalhes da solicitação", expanded=show_expander_2):
     st.write("")
     with st.form("form_diversos", border=False):
-        col1_form, col2_form, col3_form, col4_form, col5_form, col6_form, col7_form, col8_form = st.columns([2,0.6,0.6,1.2,0.6,0.6,0.2,0.1], vertical_alignment="bottom") # Ajustado col5 para botão ocorrências
+        # --- INÍCIO DA CORREÇÃO ---
+        # 1. Defina a variável que será usada para a checagem ANTES da checagem.
+        codigo_solicitacao_d_form_val = treated_line_div.get("Código Solicitação", "")
+        
+        # 2. Agora, a checagem pode ser feita com segurança.
+        is_record_loaded_for_form = bool(codigo_solicitacao_d_form_val)
+
+        # 3. Definição das colunas do formulário.
+        col1_form, col2_form, col3_form, col4_form, col5_form, col6_form, col7_form, col8_form = st.columns([2,0.6,0.6,1.2,0.6,0.6,0.2,0.1], vertical_alignment="bottom")
+        
+        # 4. Renderização dos widgets.
         tipo_processo_d_form_val = treated_line_div.get("Tipo Processo", "")
         tipo_processo_d_input = col1_form.text_input("Tipo Processo", value=tipo_processo_d_form_val, key="form_d_tipo_proc", disabled=True)
-        codigo_solicitacao_d_form_val = treated_line_div.get("Código Solicitação", "")
-        codigo_solicitacao_d_input = col2_form.text_input("Cód. Solicitação", value=codigo_solicitacao_d_form_val, key="form_d_cod_sol", disabled=bool(codigo_solicitacao_d_form_val))
+        
+        # A variável já foi definida acima, agora é apenas usada para o valor e a lógica de desabilitar.
+        codigo_solicitacao_d_input = col2_form.text_input("Cód. Solicitação", value=codigo_solicitacao_d_form_val, key="form_d_cod_sol", disabled=is_record_loaded_for_form)
+        
         data_solicitacao_d_form_val = treated_line_div.get("Data Solicitação", "")
         data_solicitacao_d_input = col3_form.text_input("Data Solicitação", value=data_solicitacao_d_form_val, key="form_d_data_sol", disabled=True)
-        
-        # MODIFICAÇÃO: Botão Ocorrências
+
         ocorrencias_d_form_val = treated_line_div.get("Ocorrências", "")
-        # O campo de texto para Ocorrências foi removido, o botão mostrará o valor
-        # ocorrencias_d_form_input = col4_form.text_input("Ocorrências", value=ocorrencias_d_form_val, key="form_d_ocorrencias", disabled=True)
-        
         btn_ocorrencias_label_form = f"{ocorrencias_d_form_val} 👁️" if ocorrencias_d_form_val else "Ocorrências 👁️"
         btn_ocorrencias_disabled_form = not bool(ocorrencias_d_form_val)
-        btn_ocorrencias_form = col4_form.form_submit_button( # Movido para col4_form
-            btn_ocorrencias_label_form, type="primary", use_container_width=True, 
+        btn_ocorrencias_form = col4_form.form_submit_button(
+            btn_ocorrencias_label_form, type="primary", use_container_width=True,
             disabled=btn_ocorrencias_disabled_form, help="Ver Ocorrências"
         )
-        # col5_form não é mais usado para o botão antigo, agora é col4_form. Ajustar próximas colunas se necessário.
-        # As colunas originais eram: [2,0.6,0.6,0.6,0.4,0.6,0.6,0.2]
-        # Nova distribuição (exemplo, pode precisar de ajuste fino):
-        # col1(TP), col2(Cod), col3(Data), col4(BtnOcor), col5(GDOC), col6(Divisão), col7(IconStatus)
-        # Para manter 8 colunas: [2, 0.6, 0.6, 0.8 (BtnOcor), 0.6 (GDOC), 0.6 (Div), 0.2 (Icon)] - Reajustar abaixo
 
         gdoc_d_form_val = treated_line_div.get("GDOC", "")
-        gdoc_d_form_input = col5_form.text_input("GDOC/Ano (xx/AA) *", value=gdoc_d_form_val, key="form_d_gdoc") # col5_form
+        gdoc_d_form_input = col5_form.text_input("GDOC/Ano (xx/AA) *", value=gdoc_d_form_val, key="form_d_gdoc")
 
-        # MODIFICAÇÃO: Selectbox Divisão
-        divisao_options_form_d_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Visamb', 'Açaí'] # Removido ''
-        current_divisao_d_form_val = treated_line_div.get("Divisão", "")
-        divisao_index_form_d_sel = None # Para exibir placeholder
-        if current_divisao_d_form_val and current_divisao_d_form_val in divisao_options_form_d_sel:
-            divisao_index_form_d_sel = divisao_options_form_d_sel.index(current_divisao_d_form_val)
-        divisao_d_form_selectbox = col6_form.selectbox( # col6_form
-            "Divisão *", divisao_options_form_d_sel, index=divisao_index_form_d_sel, 
+        # Lógica de gerenciamento do Session State para Selectboxes
+        divisao_options_form_d_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Visamb', 'Açaí']
+        status_options_form_d_sel = ['Passivo', 'Deferido', 'Indeferido']
+        divisao_options_form_d_index = None
+
+        # --- Lógica para Selectbox "Divisão *" ---
+        if is_record_loaded_for_form:
+            divisao_from_data = str(treated_line_div.get("Divisão", "")).strip()
+            if divisao_from_data in divisao_options_form_d_sel:
+                st.session_state.form_d_divisao_sel = divisao_from_data
+            else:
+                if 'form_d_divisao_sel' in st.session_state:
+                    del st.session_state.form_d_divisao_sel
+        else:
+            if 'form_d_divisao_sel' in st.session_state:
+                del st.session_state.form_d_divisao_sel
+            divisao_options_form_d_index = None
+            
+
+        divisao_d_form_selectbox = col6_form.selectbox(
+            "Divisão *", options=divisao_options_form_d_sel, index=divisao_options_form_d_index,
             key="form_d_divisao_sel", placeholder="..."
         )
 
@@ -398,11 +408,10 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
         status_icon_d_form = ":material/pending:"
         if respondido_val_form == "Sim": status_icon_d_form = ":material/check_circle:"
         elif respondido_val_form == "Não": status_icon_d_form = ":material/do_not_disturb_on:"
-        col7_form.header(status_icon_d_form, anchor=False) # col7_form (col8 original foi absorvida)
+        col7_form.header(status_icon_d_form, anchor=False)
 
         # --- Linha 2 do formulário ---
         col1_f2, col2_f2, col3_f2, col4_f2, col5_f2 = st.columns([2,1,0.4,1,1], vertical_alignment="bottom")
-        # ... (campos desta linha como estavam) ...
         razao_social_d_form_input = col1_f2.text_input("Nome Empresa", value=treated_line_div.get("Razão Social", ""), key="form_d_razao_social_input")
         cpf_cnpj_d_form_input = col2_f2.text_input("CPF / CNPJ", value=treated_line_div.get("CPF / CNPJ", ""), key="form_d_cpf_cnpj_input")
         btn_cnpj_d_form = col3_f2.form_submit_button("🔎", use_container_width=True, help="Buscar CNPJ/CPF")
@@ -411,7 +420,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
 
         # --- Linha 3 do formulário ---
         col1_f3, col2_f3, col3_f3, col4_f3, col5_f3, col6_f3, col7_f3 = st.columns([1.5,0.7,0.7,0.8,1,0.7,0.7], vertical_alignment="bottom")
-        # ... (campos desta linha como estavam, mas usando `status_d_form_selectbox` para o status) ...
         comp_valor_un_d_form_input = col1_f3.text_input("Comp. Valor", value=treated_line_div.get("Complemento Valor", ""), key="form_d_comp_valor_input")
         valor_un_d_form_input = col2_f3.text_input("Valor Unit.", value=treated_line_div.get("Valor Unitário", ""), key="form_d_valor_unit_input")
         current_valor_manual_d_form = treated_line_div.get("Valor Manual", "")
@@ -419,57 +427,59 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             current_valor_manual_d_form = 'R$ 0,00'
         valor_manual_d_form_input = col3_f3.text_input("Valor do DAM *", value=current_valor_manual_d_form, key="form_d_valor_manual_input")
 
-        # Selectbox de Status com placeholder
-        status_options_form_d_sel = ['Passivo', 'Deferido', 'Indeferido'] # Removido ''
-        current_status_d_form_val = treated_line_div.get("Status", "")
-        status_index_form_d_sel = None # Para placeholder
-        if current_status_d_form_val and current_status_d_form_val in status_options_form_d_sel:
-            status_index_form_d_sel = status_options_form_d_sel.index(current_status_d_form_val)
-        status_d_form_selectbox = col4_f3.selectbox( # Este é o selectbox de Status do formulário
-            "Status *", status_options_form_d_sel, index=status_index_form_d_sel, 
+        # --- Lógica para Selectbox "Status *" ---
+        if is_record_loaded_for_form:
+            status_from_data = treated_line_div.get("Status", "") or "Passivo"
+            st.session_state.form_d_status_sel = status_from_data
+        else:
+            if 'form_d_status_sel' in st.session_state:
+                del st.session_state.form_d_status_sel
+        
+        status_d_form_selectbox = col4_f3.selectbox(
+            "Status *", options=status_options_form_d_sel,
             key="form_d_status_sel", placeholder="..."
         )
-        # Lógica de habilitação dos botões (mantida)
-        disable_file_uploader_form = True; disable_btn_save_d_form = True
-        disable_btn_edit_d_form = True; disable_btn_send_d_form = True
-        effective_status_form = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
-        is_existing_record = bool(codigo_solicitacao_d_form_val)
-
-        if st.session_state.get('clicou_no_editar_d', False): # Se clicou em editar
-            disable_btn_save_d_form = False; disable_btn_edit_d_form = True # Habilita Salvar, desabilita Editar
-            if effective_status_form == 'Deferido': disable_file_uploader_form = False
-        else: # Não clicou em editar (estado normal ou novo registro)
-            if effective_status_form == 'Passivo':
-                disable_btn_save_d_form = False # Salvar como passivo (novo ou existente)
-                if is_existing_record: disable_btn_edit_d_form = False # Pode editar se já é passivo e existe
-                else: disable_btn_edit_d_form = True # Não pode editar se é novo e passivo
-            elif effective_status_form == 'Deferido':
-                disable_file_uploader_form = False; disable_btn_send_d_form = False
-                if is_existing_record: disable_btn_edit_d_form = False # Pode editar se existente
-                else: disable_btn_save_d_form = False # Novo, apenas salvar
-            elif effective_status_form == 'Indeferido':
-                disable_btn_send_d_form = False
-                if is_existing_record: disable_btn_edit_d_form = False
-                else: disable_btn_save_d_form = False
-        if not is_existing_record: # Se for um novo registro (sem código de solicitação)
-            disable_btn_edit_d_form = True
-            disable_btn_send_d_form = True # Não pode enviar antes de salvar pela primeira vez
+        # --- FIM DA CORREÇÃO E MODIFICAÇÃO ---
 
         servidor_d_form_input = col5_f3.text_input("Servidor", value=treated_line_div.get("Servidor", st.session_state.get("sessao_servidor","")), key="form_d_servidor_input", disabled=True)
         data_atendimento_d_form_input = col6_f3.text_input("Data At.", value=treated_line_div.get("Data Atendimento", ""), key="form_d_data_at_input", disabled=True)
         data_modificacao_d_form_input = col7_f3.text_input("Data Mod.", value=treated_line_div.get("Data Modificação", ""), key="form_d_data_mod_input", disabled=True)
 
-        # --- Linha 4 do formulário (text_area e file_uploader) ---
         col1_f4, col2_f4, col3_f4 = st.columns(3, vertical_alignment="top")
-        # ... (campos como estavam) ...
         observacao_d_form_input = col1_f4.text_area("Observação", value=treated_line_div.get("Observação", ""), height=77, key="form_d_obs_input")
         motivo_indeferimento_d_form_input = col2_f4.text_area("Motivo Indeferimento *", value=treated_line_div.get("Motivo Indeferimento", ""), height=77, key="form_d_motivo_ind_input")
+        
+        disable_file_uploader_form = True; disable_btn_save_d_form = True
+        disable_btn_edit_d_form = True; disable_btn_send_d_form = True
+        effective_status_form = st.session_state.get("form_d_status_sel")
+
+        if st.session_state.get('clicou_no_editar_d', False):
+            disable_btn_save_d_form = False; disable_btn_edit_d_form = True
+            if effective_status_form == 'Deferido': disable_file_uploader_form = False
+        else:
+            if effective_status_form == 'Passivo':
+                disable_btn_save_d_form = False
+                if is_record_loaded_for_form: disable_btn_edit_d_form = False
+                else: disable_btn_edit_d_form = True
+            elif effective_status_form == 'Deferido':
+                disable_file_uploader_form = False; disable_btn_send_d_form = False
+                if is_record_loaded_for_form: disable_btn_edit_d_form = False
+                else: disable_btn_save_d_form = False
+            elif effective_status_form == 'Indeferido':
+                disable_btn_send_d_form = False
+                if is_record_loaded_for_form: disable_btn_edit_d_form = False
+                else: disable_btn_save_d_form = False
+        
+        if not is_record_loaded_for_form:
+            disable_btn_edit_d_form = True
+            disable_btn_send_d_form = True
+
         cartao_protocolo_d_form_uploader = col3_f4.file_uploader(
             "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'],
             disabled=disable_file_uploader_form, key="form_d_cartao_prot_upload"
         )
-        # --- Links e Botões de Ação ---
-        st.write("") # Espaçador para links
+        
+        st.write("")
         link_cols_r1_form = st.columns(4); link_cols_r2_form = st.columns(4)
         all_link_cols_form = link_cols_r1_form + link_cols_r2_form; link_idx_form = 0
         cabecalho_url_form_list = ["Docs Mesclados", "Decreto de Utilidade Pública", "CCMEI", "Ofício"]
@@ -486,7 +496,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 if link_idx_form < len(all_link_cols_form):
                     titulo_link_proj_form = titulos_projeto_form[i_form] if i_form < len(titulos_projeto_form) else f"Prancha {i_form+1}"
                     all_link_cols_form[link_idx_form].link_button(f"🔗 {titulo_link_proj_form}", url_proj_form, use_container_width=True); link_idx_form +=1
-        st.write("") # Espaçador para botões de ação
+        st.write("")
 
         action_cols_form = st.columns(8, vertical_alignment="bottom", gap="small")
         btn_clear_d_form_submit = action_cols_form[7].form_submit_button("🧹 Limpar", use_container_width=True)
@@ -496,7 +506,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
         action_cols_form[3].link_button("📋 Requisitos", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0", use_container_width=True)
         action_cols_form[2].link_button("🌍 GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", use_container_width=True)
 
-        # Lógica dos botões do formulário
         if 'toast_msg_success' not in st.session_state: st.session_state.toast_msg_success = False
         if st.session_state.toast_msg_success: st.toast("Dados salvos ✨✨"); st.session_state.toast_msg_success = False
 
@@ -505,19 +514,21 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             st.session_state.reload_div_df = True
             load_div_df.clear()
             st.session_state.clicou_no_editar_d = False
+            if 'form_d_divisao_sel' in st.session_state: del st.session_state.form_d_divisao_sel
+            if 'form_d_status_sel' in st.session_state: del st.session_state.form_d_status_sel
             if rerun: st.rerun()
 
         if btn_clear_d_form_submit: btn_clear_fn_form_d_action(rerun=True)
         
-        if btn_ocorrencias_form: # Ação do novo botão de ocorrências
-            cpf_cnpj_para_ocorrencia = cpf_cnpj_d_form_input # Usar valor do campo CNPJ do formulário
-            if cpf_cnpj_para_ocorrencia: get_ocorrencias(cpf_cnpj_para_ocorrencia, "diversos") # Supondo que get_ocorrencias existe
+        if btn_ocorrencias_form:
+            cpf_cnpj_para_ocorrencia = cpf_cnpj_d_form_input
+            if cpf_cnpj_para_ocorrencia: get_ocorrencias(cpf_cnpj_para_ocorrencia, "diversos")
             else: st.toast("CPF/CNPJ necessário para buscar Ocorrências.")
         
         if btn_cnpj_d_form:
             cpf_cnpj_para_busca = cpf_cnpj_d_form_input
             if cpf_cnpj_para_busca and (len(cpf_cnpj_para_busca) == 14 or len(cpf_cnpj_para_busca) == 18): 
-                get_cnpj(cpf_cnpj_para_busca, '', '') # Supondo que get_cnpj existe
+                get_cnpj(cpf_cnpj_para_busca, '', '')
             else: st.toast(":orange[CNPJ/CPF inválido para busca.]")
         
         if 'clicou_no_editar_d' not in st.session_state: st.session_state.clicou_no_editar_d = False
@@ -529,9 +540,9 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             cod_sol_save = codigo_solicitacao_d_input
             gdoc_save = gdoc_d_form_input
             data_sol_save = data_solicitacao_d_input
-            divisao_save = divisao_d_form_selectbox # Pode ser None se placeholder selecionado
+            divisao_save = st.session_state.get("form_d_divisao_sel")
             valor_manual_save = valor_manual_d_form_input
-            status_save = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
+            status_save = st.session_state.get("form_d_status_sel")
             motivo_ind_save = motivo_indeferimento_d_form_input
             razao_social_save = razao_social_d_form_input
             cpf_cnpj_save = cpf_cnpj_d_form_input
@@ -543,22 +554,22 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
 
             if not cod_sol_save:
                 st.toast("🔴 :red[**Código da Solicitação é obrigatório para salvar.**]"); return
-            if not tipo_proc_save : # Tipo de processo também é essencial para um novo registro
+            if not tipo_proc_save:
                  st.toast("🔴 :red[**Tipo de Processo é obrigatório para salvar.**]"); return
 
-
-            divisao_list_valid_save = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
+            divisao_list_valid_save = divisao_options_form_d_sel
             treated_valor_manual_to_save = extrair_e_formatar_real(valor_manual_save)
             gdoc_is_valid_to_save = validate_gdoc(gdoc_save, data_sol_save)
 
             cond_deferido_to_save = (status_save == "Deferido" and gdoc_is_valid_to_save and (divisao_save in divisao_list_valid_save) and bool(treated_valor_manual_to_save))
-            cond_indeferido_to_save = (status_save == "Indeferido" and len(motivo_ind_save or "") > 10 and (divisao_save in divisao_list_valid_save) ) # Divisão também para indeferir
-            cond_passivo_to_save = (status_save == "Passivo") # Divisão não obrigatória para Passivo
+            cond_indeferido_to_save = (status_save == "Indeferido" and len(motivo_ind_save or "") > 10 and (divisao_save in divisao_list_valid_save) )
+            cond_passivo_to_save = (status_save == "Passivo")
 
             if cond_deferido_to_save or cond_indeferido_to_save or cond_passivo_to_save:
                 worksheet_save_d = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
                 cell_save_d = worksheet_save_d.find(cod_sol_save, in_column=1)
                 is_new_record_form = not bool(cell_save_d)
+                divisao_to_sheet = divisao_save if divisao_save is not None else ""
 
                 if is_new_record_form:
                     new_row_values = [
@@ -570,7 +581,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                         get_current_datetime() if status_save != "Passivo" else "",
                         motivo_ind_save if status_save == "Indeferido" else "", "",
                         gdoc_save if status_save != "Passivo" else "",
-                        divisao_save, # Salvar None se placeholder
+                        divisao_to_sheet,
                         "Não", "", "", "", "" ]
                     worksheet_save_d.append_row(new_row_values, value_input_option='USER_ENTERED')
                     st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
@@ -588,7 +599,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                     servidor_final = st.session_state.get("sessao_servidor", "") if status_save != "Passivo" else treated_line_div.get("Servidor","")
                     motivo_final = motivo_ind_save if status_save != "Passivo" else treated_line_div.get("Motivo Indeferimento", "")
                     gdoc_final = gdoc_save if status_save != "Passivo" else treated_line_div.get("GDOC", "")
-                    divisao_final = divisao_save # Salvar None se placeholder
                     valor_final_save_sheet = valor_manual_save
                     if status_save == "Deferido" and treated_valor_manual_to_save: valor_final_save_sheet = treated_valor_manual_to_save
                     elif status_save == "Passivo": valor_final_save_sheet = treated_line_div.get("Valor Manual", "")
@@ -600,19 +610,19 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                     worksheet_save_d.update_acell(f'J{cell_save_d.row}', obs_save)
                     worksheet_save_d.update_acell(f'K{cell_save_d.row}', email1_save)
                     worksheet_save_d.update_acell(f'L{cell_save_d.row}', email2_save)
-                    values_upd_status_block = [ valor_final_save_sheet, status_save, servidor_final, dt_at_final, dt_mod_final, motivo_final, link_cartao_ws, gdoc_final, divisao_final, resp_ws ]
+                    values_upd_status_block = [ valor_final_save_sheet, status_save, servidor_final, dt_at_final, dt_mod_final, motivo_final, link_cartao_ws, gdoc_final, divisao_to_sheet, resp_ws ]
                     range_upd_status_block = f"R{cell_save_d.row}:AA{cell_save_d.row}"
                     worksheet_save_d.update(range_name=range_upd_status_block, values=[values_upd_status_block])
                     st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
                     btn_clear_fn_form_d_action(rerun=True)
             else:
                 if status_save == "Deferido":
-                    if not gdoc_is_valid_to_save: st.toast(f"GDOC deve ser xx/AA.");
-                    elif not (divisao_save in divisao_list_valid_save): st.toast("Divisão inválida para Deferir.");
-                    elif not bool(treated_valor_manual_to_save): st.toast("Valor do DAM obrigatório e > R$ 0,00 para Deferir.");
+                    if not gdoc_is_valid_to_save: st.toast(f"🔴 Formato GDOC inválido.");
+                    elif not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Deferir.");
+                    elif not bool(treated_valor_manual_to_save): st.toast("🔴 Valor do DAM obrigatório e > R$ 0,00 para Deferir.");
                 elif status_save == "Indeferido":
-                    if not (divisao_save in divisao_list_valid_save): st.toast("Divisão inválida para Indeferir.");
-                    elif not (len(motivo_ind_save or "") > 10): st.toast("Motivo indeferimento curto.");
+                    if not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Indeferir.");
+                    elif not (len(motivo_ind_save or "") > 10): st.toast("🔴 Motivo indeferimento curto.");
 
         if btn_save_d_form_submit: save_in_sheet_d_action(st.session_state.clicou_no_editar_d)
 
@@ -626,12 +636,13 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 if link_cartao_gdrive_email: ws_email.update_acell(f'X{cell_email.row}', link_cartao_gdrive_email)
                 ws_email.update_acell(f'AA{cell_email.row}', "Sim")
             st.session_state.pop("gdrive_link_do_cartao_d", None); st.session_state.is_email_sended_d = False
-            st.session_state.clicou_no_editar_d = False; btn_clear_fn_form_d_action(rerun=True)
+            st.session_state.clicou_no_editar_d = False
+            btn_clear_fn_form_d_action(rerun=True)
 
         def send_mail_d_action():
-            status_send = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo" # Tratar placeholder
+            status_send = st.session_state.get("form_d_status_sel")
             gdoc_send = gdoc_d_form_input
-            divisao_send = divisao_d_form_selectbox # Pode ser None
+            divisao_send = st.session_state.get("form_d_divisao_sel")
             email_diversos(
                 kw_status=status_send, kw_gdoc=gdoc_send, kd_divisao=divisao_send,
                 kw_protocolo=codigo_solicitacao_d_input, kw_data_sol=data_solicitacao_d_input,
@@ -642,21 +653,20 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
 
         if btn_send_d_form_submit:
             tipo_proc_send_btn = tipo_processo_d_input; cod_sol_send_btn = codigo_solicitacao_d_input
-            status_send_btn = status_d_form_selectbox if status_d_form_selectbox is not None else "Passivo"
-            divisao_send_btn = divisao_d_form_selectbox # Pode ser None
+            status_send_btn = st.session_state.get("form_d_status_sel")
+            divisao_send_btn = st.session_state.get("form_d_divisao_sel")
             gdoc_send_btn = gdoc_d_form_input; data_sol_send_btn = data_solicitacao_d_input
             cartao_send_btn = cartao_protocolo_d_form_uploader; motivo_send_btn = motivo_indeferimento_d_form_input
             valor_manual_send_btn = valor_manual_d_form_input
 
             if tipo_proc_send_btn and cod_sol_send_btn:
-                div_list_send = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Açaí', 'Visamb']
+                div_list_send = divisao_options_form_d_sel
                 gdoc_valid_send = validate_gdoc(gdoc_send_btn, data_sol_send_btn)
                 prot_file_valid_send = False
                 if cartao_send_btn: prot_file_valid_send = validate_protocolo(cartao_send_btn.name, gdoc_send_btn)
                 val_manual_ok_send = bool(extrair_e_formatar_real(valor_manual_send_btn))
 
                 cond_def_send = (status_send_btn == "Deferido" and (divisao_send_btn in div_list_send) and gdoc_valid_send and cartao_send_btn and prot_file_valid_send and val_manual_ok_send)
-                # Para indeferir, a divisão também é importante para o template do email
                 cond_ind_send = (status_send_btn == "Indeferido" and (divisao_send_btn in div_list_send) and len(motivo_send_btn or "") > 10)
 
                 if cond_def_send or cond_ind_send:

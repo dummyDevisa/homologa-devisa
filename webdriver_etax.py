@@ -1,5 +1,6 @@
 from webdriver import *
 
+
 def selenium_login_etax():
     #PLACEHOLDER.toast("Executando selenium_login_etax...")
     
@@ -10,7 +11,7 @@ def selenium_login_etax():
 
     try:
         # Acessar a página inicial
-        driver.get(url_login)
+        driver.get(url=url_login)
         # Preencher o formulário de login
         WebDriverWait(driver, DEFAULT_WAIT_TIME).until(
             EC.presence_of_element_located((By.ID, "userNameCpf"))
