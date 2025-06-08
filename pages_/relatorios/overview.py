@@ -61,8 +61,7 @@ else:
 percind_dam = formatar_percentual(sh_relatorio['Indeferido'].iloc[0], (float(sh_relatorio['Deferido'].iloc[0])+float(sh_relatorio['Indeferido'].iloc[0])))
 percind_licenca = formatar_percentual(sh_relatorio['Indeferido'].iloc[1], (float(sh_relatorio['Deferido'].iloc[1])+float(sh_relatorio['Indeferido'].iloc[1])))
 percind_diversos = formatar_percentual(sh_relatorio['Indeferido'].iloc[2], (float(sh_relatorio['Deferido'].iloc[2])+float(sh_relatorio['Indeferido'].iloc[2])))
-percind_lfs = formatar_percentual(sh_relatorio['Total'].iloc[3], (float(sh_relatorio['Deferido'].iloc[1])+float(sh_relatorio['Total'].iloc[3])))
-
+percind_lfs = formatar_percentual(sh_relatorio['Total'].iloc[3], (float(sh_relatorio['Deferido'].iloc[1])))
 
 match st.session_state.privilege:
     case 'adm'| 'normal' | 'secretario':

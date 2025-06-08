@@ -672,7 +672,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             motivo_indeferimento_lf_input = st.text_area("Motivo Indeferimento *", value=treated_line_lf.get("Motivo Indeferimento", ""), height=77, key="form_motivo_ind_lf_input")
             st.write("")
             form_col1_btn, form_col2_btn, form_col3_btn, form_col4_btn, form_col5_btn = st.columns(5, vertical_alignment="bottom", gap='small')
-            btn_clear_lf_form = form_col4_btn.form_submit_button("🧹 Limpar", use_container_width=True)
+            btn_clear_lf_form = form_col4_btn.form_submit_button("🧹 Limpar", use_container_width=True, disabled=True)
             btn_save_lf_form = form_col5_btn.form_submit_button("💾 Salvar", use_container_width=True, disabled=disable_btn_save_lf_form, type='primary')
             btn_send_lf_form = form_col3_btn.form_submit_button("📧 Enviar", use_container_width=True, disabled=disable_btn_send_lf_form, type='primary')
             form_col2_btn.link_button("📋 Checklist", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0", use_container_width=True)

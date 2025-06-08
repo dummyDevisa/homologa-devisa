@@ -607,7 +607,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2_tx):
 
             action_cols_tx_form_r1 = st.columns(4, vertical_alignment="bottom", gap="small")
             action_cols_tx_form_r2 = st.columns(4, vertical_alignment="bottom", gap="small")
-            btn_clear_tx_form_submit = action_cols_tx_form_r2[3].form_submit_button("🧹 Limpar", use_container_width=True)
+            btn_clear_tx_form_submit = action_cols_tx_form_r2[3].form_submit_button("🧹 Limpar", use_container_width=True, disabled=True)
             btn_save_tx_form_submit = action_cols_tx_form_r1[2].form_submit_button("💾 Salvar", use_container_width=True, disabled=disable_btn_save_tx_form, type='primary')
             btn_edit_tx_form_submit = action_cols_tx_form_r1[3].form_submit_button("📝 Editar", use_container_width=True, disabled=disable_btn_edit_tx_form)
             btn_send_tx_form_submit = action_cols_tx_form_r2[2].form_submit_button("📧 Enviar", use_container_width=True, disabled=disable_btn_send_tx_form, type='primary')

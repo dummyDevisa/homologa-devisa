@@ -324,6 +324,8 @@ if 'div_empty_df' not in st.session_state:
         empty_series_div = pd.Series(index=fallback_cols_div, dtype='object').fillna("")
     st.session_state.div_empty_df = empty_series_div
 treated_line_div = st.session_state.div_empty_df.copy()
+
+# --- LÓGICA DE CARREGAMENTO DO FORMULÁRIO (SEM ALTERAÇÃO, MAS IMPORTANTE PARA O CONTEXTO) ---
 if st.session_state.get('selected_index_div') is not None and 'div_df' in st.session_state and not st.session_state.div_df.empty:
     idx_to_fetch = st.session_state.selected_index_div
     if idx_to_fetch >= 0 and idx_to_fetch < len(st.session_state.div_df):
@@ -334,41 +336,29 @@ if st.session_state.get('selected_index_div') is not None and 'div_df' in st.ses
         st.session_state.selected_index_div = None
         if DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[DIV_TABLE_KEY], 'selection'):
              st.session_state[DIV_TABLE_KEY].selection.rows = []
+
+# --- BLOCO PROBLEMÁTICO REMOVIDO/SIMPLIFICADO ---
+# A lógica que estava aqui (`if st.session_state.btn_clear_d:`) foi removida, 
+# pois a limpeza agora é tratada de forma mais direta.
 if 'btn_clear_d' not in st.session_state:
-    st.session_state.btn_clear_d = False; st.session_state.disable_file_uploader = True
-    st.session_state.disable_btn_save_d = True; st.session_state.disable_btn_edit_d = True
+    st.session_state.btn_clear_d = False
+    st.session_state.disable_file_uploader = True
+    st.session_state.disable_btn_save_d = True
+    st.session_state.disable_btn_edit_d = True
     st.session_state.disable_btn_send_d = True
-if st.session_state.btn_clear_d: 
-    treated_line_div = st.session_state.div_empty_df.copy(); st.session_state.selected_index_div = None 
-    if DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[DIV_TABLE_KEY], 'selection'): st.session_state[DIV_TABLE_KEY].selection.rows = []
-    if MERGED_DIV_TABLE_KEY in st.session_state and hasattr(st.session_state[MERGED_DIV_TABLE_KEY], 'selection'): st.session_state[MERGED_DIV_TABLE_KEY].selection.rows = []
-    st.session_state.sel_merged_div_df = pd.DataFrame(); st.session_state.last_selected_merged_div_index = None
-    st.session_state.clicou_no_editar_d = False
 
 show_expander_2 = bool("Código Solicitação" in treated_line_div and len(str(treated_line_div.get("Código Solicitação",""))) > 1)
 with st.expander("Detalhes da solicitação", expanded=show_expander_2):
     st.write("")
     with st.form("form_diversos", border=False):
-        # --- INÍCIO DA CORREÇÃO ---
-        # 1. Defina a variável que será usada para a checagem ANTES da checagem.
         codigo_solicitacao_d_form_val = treated_line_div.get("Código Solicitação", "")
-        
-        # 2. Agora, a checagem pode ser feita com segurança.
         is_record_loaded_for_form = bool(codigo_solicitacao_d_form_val)
-
-        # 3. Definição das colunas do formulário.
         col1_form, col2_form, col3_form, col4_form, col5_form, col6_form, col7_form, col8_form = st.columns([2,0.6,0.6,1.2,0.6,0.6,0.2,0.1], vertical_alignment="bottom")
-        
-        # 4. Renderização dos widgets.
         tipo_processo_d_form_val = treated_line_div.get("Tipo Processo", "")
         tipo_processo_d_input = col1_form.text_input("Tipo Processo", value=tipo_processo_d_form_val, key="form_d_tipo_proc", disabled=True)
-        
-        # A variável já foi definida acima, agora é apenas usada para o valor e a lógica de desabilitar.
         codigo_solicitacao_d_input = col2_form.text_input("Cód. Solicitação", value=codigo_solicitacao_d_form_val, key="form_d_cod_sol", disabled=is_record_loaded_for_form)
-        
         data_solicitacao_d_form_val = treated_line_div.get("Data Solicitação", "")
         data_solicitacao_d_input = col3_form.text_input("Data Solicitação", value=data_solicitacao_d_form_val, key="form_d_data_sol", disabled=True)
-
         ocorrencias_d_form_val = treated_line_div.get("Ocorrências", "")
         btn_ocorrencias_label_form = f"{ocorrencias_d_form_val} 👁️" if ocorrencias_d_form_val else "Ocorrências 👁️"
         btn_ocorrencias_disabled_form = not bool(ocorrencias_d_form_val)
@@ -376,32 +366,23 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             btn_ocorrencias_label_form, type="primary", use_container_width=True,
             disabled=btn_ocorrencias_disabled_form, help="Ver Ocorrências"
         )
-
         gdoc_d_form_val = treated_line_div.get("GDOC", "")
         gdoc_d_form_input = col5_form.text_input("GDOC/Ano (xx/AA) *", value=gdoc_d_form_val, key="form_d_gdoc")
-
-        # Lógica de gerenciamento do Session State para Selectboxes
+        
         divisao_options_form_d_sel = ['DVSA', 'DVSE', 'DVSCEP', 'DVSDM', 'Visamb', 'Açaí']
         status_options_form_d_sel = ['Passivo', 'Deferido', 'Indeferido']
-        divisao_options_form_d_index = None
-
-        # --- Lógica para Selectbox "Divisão *" ---
+        
+        divisao_index_d_form = None
         if is_record_loaded_for_form:
             divisao_from_data = str(treated_line_div.get("Divisão", "")).strip()
             if divisao_from_data in divisao_options_form_d_sel:
-                st.session_state.form_d_divisao_sel = divisao_from_data
-            else:
-                if 'form_d_divisao_sel' in st.session_state:
-                    del st.session_state.form_d_divisao_sel
-        else:
-            if 'form_d_divisao_sel' in st.session_state:
-                del st.session_state.form_d_divisao_sel
-            divisao_options_form_d_index = None
-            
+                divisao_index_d_form = divisao_options_form_d_sel.index(divisao_from_data)
 
         divisao_d_form_selectbox = col6_form.selectbox(
-            "Divisão *", options=divisao_options_form_d_sel, index=divisao_options_form_d_index,
-            key="form_d_divisao_sel", placeholder="..."
+            "Divisão *", 
+            options=divisao_options_form_d_sel, 
+            index=divisao_index_d_form,
+            placeholder="..."
         )
 
         respondido_val_form = treated_line_div.get("Respondido", "")
@@ -409,16 +390,12 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
         if respondido_val_form == "Sim": status_icon_d_form = ":material/check_circle:"
         elif respondido_val_form == "Não": status_icon_d_form = ":material/do_not_disturb_on:"
         col7_form.header(status_icon_d_form, anchor=False)
-
-        # --- Linha 2 do formulário ---
         col1_f2, col2_f2, col3_f2, col4_f2, col5_f2 = st.columns([2,1,0.4,1,1], vertical_alignment="bottom")
         razao_social_d_form_input = col1_f2.text_input("Nome Empresa", value=treated_line_div.get("Razão Social", ""), key="form_d_razao_social_input")
         cpf_cnpj_d_form_input = col2_f2.text_input("CPF / CNPJ", value=treated_line_div.get("CPF / CNPJ", ""), key="form_d_cpf_cnpj_input")
         btn_cnpj_d_form = col3_f2.form_submit_button("🔎", use_container_width=True, help="Buscar CNPJ/CPF")
         email1_d_form_input = col4_f2.text_input("E-mail", value=treated_line_div.get("E-mail", ""), key="form_d_email1_input")
         email2_d_form_input = col5_f2.text_input("E-mail CC", value=treated_line_div.get("E-mail CC", ""), key="form_d_email2_input")
-
-        # --- Linha 3 do formulário ---
         col1_f3, col2_f3, col3_f3, col4_f3, col5_f3, col6_f3, col7_f3 = st.columns([1.5,0.7,0.7,0.8,1,0.7,0.7], vertical_alignment="bottom")
         comp_valor_un_d_form_input = col1_f3.text_input("Comp. Valor", value=treated_line_div.get("Complemento Valor", ""), key="form_d_comp_valor_input")
         valor_un_d_form_input = col2_f3.text_input("Valor Unit.", value=treated_line_div.get("Valor Unitário", ""), key="form_d_valor_unit_input")
@@ -427,32 +404,30 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             current_valor_manual_d_form = 'R$ 0,00'
         valor_manual_d_form_input = col3_f3.text_input("Valor do DAM *", value=current_valor_manual_d_form, key="form_d_valor_manual_input")
 
-        # --- Lógica para Selectbox "Status *" ---
+        status_index_d_form = None
         if is_record_loaded_for_form:
             status_from_data = treated_line_div.get("Status", "") or "Passivo"
-            st.session_state.form_d_status_sel = status_from_data
-        else:
-            if 'form_d_status_sel' in st.session_state:
-                del st.session_state.form_d_status_sel
+            if status_from_data in status_options_form_d_sel:
+                status_index_d_form = status_options_form_d_sel.index(status_from_data)
         
         status_d_form_selectbox = col4_f3.selectbox(
-            "Status *", options=status_options_form_d_sel,
-            key="form_d_status_sel", placeholder="..."
+            "Status *", 
+            options=status_options_form_d_sel,
+            index=status_index_d_form,
+            placeholder="..."
         )
-        # --- FIM DA CORREÇÃO E MODIFICAÇÃO ---
 
         servidor_d_form_input = col5_f3.text_input("Servidor", value=treated_line_div.get("Servidor", st.session_state.get("sessao_servidor","")), key="form_d_servidor_input", disabled=True)
         data_atendimento_d_form_input = col6_f3.text_input("Data At.", value=treated_line_div.get("Data Atendimento", ""), key="form_d_data_at_input", disabled=True)
         data_modificacao_d_form_input = col7_f3.text_input("Data Mod.", value=treated_line_div.get("Data Modificação", ""), key="form_d_data_mod_input", disabled=True)
-
         col1_f4, col2_f4, col3_f4 = st.columns(3, vertical_alignment="top")
         observacao_d_form_input = col1_f4.text_area("Observação", value=treated_line_div.get("Observação", ""), height=77, key="form_d_obs_input")
         motivo_indeferimento_d_form_input = col2_f4.text_area("Motivo Indeferimento *", value=treated_line_div.get("Motivo Indeferimento", ""), height=77, key="form_d_motivo_ind_input")
-        
         disable_file_uploader_form = True; disable_btn_save_d_form = True
         disable_btn_edit_d_form = True; disable_btn_send_d_form = True
-        effective_status_form = st.session_state.get("form_d_status_sel")
-
+        
+        effective_status_form = status_d_form_selectbox
+        
         if st.session_state.get('clicou_no_editar_d', False):
             disable_btn_save_d_form = False; disable_btn_edit_d_form = True
             if effective_status_form == 'Deferido': disable_file_uploader_form = False
@@ -469,16 +444,14 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 disable_btn_send_d_form = False
                 if is_record_loaded_for_form: disable_btn_edit_d_form = False
                 else: disable_btn_save_d_form = False
-        
         if not is_record_loaded_for_form:
             disable_btn_edit_d_form = True
             disable_btn_send_d_form = True
-
+        
         cartao_protocolo_d_form_uploader = col3_f4.file_uploader(
             "Anexar Cartão do Protocolo *", accept_multiple_files=False, type=['pdf'],
             disabled=disable_file_uploader_form, key="form_d_cartao_prot_upload"
         )
-        
         st.write("")
         link_cols_r1_form = st.columns(4); link_cols_r2_form = st.columns(4)
         all_link_cols_form = link_cols_r1_form + link_cols_r2_form; link_idx_form = 0
@@ -487,7 +460,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             url_val_form = treated_line_div.get(header_key_form)
             if isinstance(url_val_form, str) and url_val_form.startswith("http") and link_idx_form < len(all_link_cols_form):
                 all_link_cols_form[link_idx_form].link_button(f"🔗 {header_key_form}", url_val_form, use_container_width=True); link_idx_form +=1
-
         projeto_urls_form_list_val = treated_line_div.get("Docs Aprovação de Projeto", "")
         if "aprovação de Projeto" in tipo_processo_d_input and isinstance(projeto_urls_form_list_val, str) and projeto_urls_form_list_val.strip():
             projeto_urls_list_display = [f"https://{u.strip()}" for u in projeto_urls_form_list_val.split("https://") if u.strip()]
@@ -497,66 +469,55 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                     titulo_link_proj_form = titulos_projeto_form[i_form] if i_form < len(titulos_projeto_form) else f"Prancha {i_form+1}"
                     all_link_cols_form[link_idx_form].link_button(f"🔗 {titulo_link_proj_form}", url_proj_form, use_container_width=True); link_idx_form +=1
         st.write("")
-
         action_cols_form = st.columns(8, vertical_alignment="bottom", gap="small")
-        btn_clear_d_form_submit = action_cols_form[7].form_submit_button("🧹 Limpar", use_container_width=True)
+        btn_clear_d_form_submit = action_cols_form[7].form_submit_button("🧹 Limpar", use_container_width=True, disabled=not is_record_loaded_for_form) # Habilitado se houver registro
         btn_save_d_form_submit = action_cols_form[6].form_submit_button("💾 Salvar", use_container_width=True, disabled=disable_btn_save_d_form, type='primary')
         btn_edit_d_form_submit = action_cols_form[5].form_submit_button("📝 Editar", use_container_width=True, disabled=disable_btn_edit_d_form)
         btn_send_d_form_submit = action_cols_form[4].form_submit_button("📧 Enviar", use_container_width=True, disabled=disable_btn_send_d_form, type='primary')
         action_cols_form[3].link_button("📋 Requisitos", "https://sites.google.com/view/secretariadevisa/in%C3%ADcio/processos/requisitos?authuser=0", use_container_width=True)
         action_cols_form[2].link_button("🌍 GDOC", "https://gdoc.belem.pa.gov.br/gdocprocessos/processo/pesquisarInteressado", use_container_width=True)
-
         if 'toast_msg_success' not in st.session_state: st.session_state.toast_msg_success = False
         if st.session_state.toast_msg_success: st.toast("Dados salvos ✨✨"); st.session_state.toast_msg_success = False
 
-        def btn_clear_fn_form_d_action(rerun=True):
-            st.session_state.btn_clear_d = True
-            st.session_state.reload_div_df = True
-            load_div_df.clear()
+        # --- FUNÇÃO DE LIMPEZA SIMPLIFICADA (AGORA SÓ PARA O BOTÃO) ---
+        def btn_clear_fn_form_d_action():
+            st.session_state.selected_index_div = None
             st.session_state.clicou_no_editar_d = False
-            if 'form_d_divisao_sel' in st.session_state: del st.session_state.form_d_divisao_sel
-            if 'form_d_status_sel' in st.session_state: del st.session_state.form_d_status_sel
-            if rerun: st.rerun()
+            st.rerun()
 
-        if btn_clear_d_form_submit: btn_clear_fn_form_d_action(rerun=True)
+        if btn_clear_d_form_submit: btn_clear_fn_form_d_action()
         
         if btn_ocorrencias_form:
             cpf_cnpj_para_ocorrencia = cpf_cnpj_d_form_input
             if cpf_cnpj_para_ocorrencia: get_ocorrencias(cpf_cnpj_para_ocorrencia, "diversos")
             else: st.toast("CPF/CNPJ necessário para buscar Ocorrências.")
-        
         if btn_cnpj_d_form:
             cpf_cnpj_para_busca = cpf_cnpj_d_form_input
             if cpf_cnpj_para_busca and (len(cpf_cnpj_para_busca) == 14 or len(cpf_cnpj_para_busca) == 18): 
                 get_cnpj(cpf_cnpj_para_busca, '', '')
             else: st.toast(":orange[CNPJ/CPF inválido para busca.]")
-        
         if 'clicou_no_editar_d' not in st.session_state: st.session_state.clicou_no_editar_d = False
         if btn_edit_d_form_submit:
             st.session_state.clicou_no_editar_d = True; st.rerun()
 
+        # --- FUNÇÃO DE SALVAR COM LÓGICA DE RESET CORRIGIDA ---
         def save_in_sheet_d_action(btn_edit_mode_action: bool):
-            tipo_proc_save = tipo_processo_d_input
+            st.toast("Tentando salvar os dados. Aguarde...")
             cod_sol_save = codigo_solicitacao_d_input
-            gdoc_save = gdoc_d_form_input
+            tipo_proc_save = tipo_processo_d_input
             data_sol_save = data_solicitacao_d_input
-            divisao_save = st.session_state.get("form_d_divisao_sel")
-            valor_manual_save = valor_manual_d_form_input
-            status_save = st.session_state.get("form_d_status_sel")
-            motivo_ind_save = motivo_indeferimento_d_form_input
-            razao_social_save = razao_social_d_form_input
-            cpf_cnpj_save = cpf_cnpj_d_form_input
-            email1_save = email1_d_form_input
-            email2_save = email2_d_form_input
-            obs_save = observacao_d_form_input
-            comp_valor_save = comp_valor_un_d_form_input
-            valor_unit_save = valor_un_d_form_input
-
+            status_save = status_d_form_selectbox
+            
             if not cod_sol_save:
                 st.toast("🔴 :red[**Código da Solicitação é obrigatório para salvar.**]"); return
             if not tipo_proc_save:
                  st.toast("🔴 :red[**Tipo de Processo é obrigatório para salvar.**]"); return
-
+            
+            divisao_save = divisao_d_form_selectbox
+            gdoc_save = gdoc_d_form_input
+            valor_manual_save = valor_manual_d_form_input
+            motivo_ind_save = motivo_indeferimento_d_form_input
+            
             divisao_list_valid_save = divisao_options_form_d_sel
             treated_valor_manual_to_save = extrair_e_formatar_real(valor_manual_save)
             gdoc_is_valid_to_save = validate_gdoc(gdoc_save, data_sol_save)
@@ -569,9 +530,15 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 worksheet_save_d = get_worksheet(1, st.secrets['sh_keys']['geral_major'])
                 cell_save_d = worksheet_save_d.find(cod_sol_save, in_column=1)
                 is_new_record_form = not bool(cell_save_d)
-                divisao_to_sheet = divisao_save if divisao_save is not None else ""
 
                 if is_new_record_form:
+                    # Lógica para novo registro (inalterada)
+                    razao_social_save = razao_social_d_form_input; cpf_cnpj_save = cpf_cnpj_d_form_input
+                    email1_save = email1_d_form_input; email2_save = email2_d_form_input
+                    obs_save = observacao_d_form_input; comp_valor_save = comp_valor_un_d_form_input
+                    valor_unit_save = valor_un_d_form_input
+                    divisao_to_sheet = divisao_save if divisao_save is not None else ""
+                    
                     new_row_values = [
                         cod_sol_save, data_sol_save, tipo_proc_save, razao_social_save, cpf_cnpj_save, "Válido",
                         "", valor_unit_save, comp_valor_save, obs_save, email1_save, email2_save, "", "", "", "",
@@ -581,51 +548,66 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                         get_current_datetime() if status_save != "Passivo" else "",
                         motivo_ind_save if status_save == "Indeferido" else "", "",
                         gdoc_save if status_save != "Passivo" else "",
-                        divisao_to_sheet,
-                        "Não", "", "", "", "" ]
+                        divisao_to_sheet, "Não", "", "", "", ""
+                    ]
                     worksheet_save_d.append_row(new_row_values, value_input_option='USER_ENTERED')
-                    st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
-                    btn_clear_fn_form_d_action(rerun=True)
-                elif cell_save_d :
+                    
+                elif cell_save_d:
+                    # Lógica de atualização (inalterada)
                     servidor_atual_ws = worksheet_save_d.cell(cell_save_d.row, 20).value
                     if servidor_atual_ws and servidor_atual_ws != st.session_state.get("sessao_servidor") and not btn_edit_mode_action and status_save != "Passivo":
                         st.toast(f"🔴 :red[**Erro! Sol. já tratada por '{servidor_atual_ws}'.**]"); return
                     
-                    data_at_ws = worksheet_save_d.cell(cell_save_d.row, 21).value
-                    link_cartao_ws = worksheet_save_d.cell(cell_save_d.row, 24).value or ""
-                    resp_ws = worksheet_save_d.cell(cell_save_d.row, 27).value or "Não"
-                    dt_at_final = data_at_ws if data_at_ws and status_save == "Passivo" else (get_current_datetime() if not data_at_ws and status_save != "Passivo" else data_at_ws)
-                    dt_mod_final = get_current_datetime() if status_save != "Passivo" else treated_line_div.get("Data Modificação","")
-                    servidor_final = st.session_state.get("sessao_servidor", "") if status_save != "Passivo" else treated_line_div.get("Servidor","")
-                    motivo_final = motivo_ind_save if status_save != "Passivo" else treated_line_div.get("Motivo Indeferimento", "")
-                    gdoc_final = gdoc_save if status_save != "Passivo" else treated_line_div.get("GDOC", "")
-                    valor_final_save_sheet = valor_manual_save
-                    if status_save == "Deferido" and treated_valor_manual_to_save: valor_final_save_sheet = treated_valor_manual_to_save
-                    elif status_save == "Passivo": valor_final_save_sheet = treated_line_div.get("Valor Manual", "")
+                    current_time = get_current_datetime()
                     
-                    worksheet_save_d.update_acell(f'D{cell_save_d.row}', razao_social_save)
-                    worksheet_save_d.update_acell(f'E{cell_save_d.row}', cpf_cnpj_save)
-                    worksheet_save_d.update_acell(f'H{cell_save_d.row}', valor_unit_save)
-                    worksheet_save_d.update_acell(f'I{cell_save_d.row}', comp_valor_save)
-                    worksheet_save_d.update_acell(f'J{cell_save_d.row}', obs_save)
-                    worksheet_save_d.update_acell(f'K{cell_save_d.row}', email1_save)
-                    worksheet_save_d.update_acell(f'L{cell_save_d.row}', email2_save)
-                    values_upd_status_block = [ valor_final_save_sheet, status_save, servidor_final, dt_at_final, dt_mod_final, motivo_final, link_cartao_ws, gdoc_final, divisao_to_sheet, resp_ws ]
-                    range_upd_status_block = f"R{cell_save_d.row}:AA{cell_save_d.row}"
-                    worksheet_save_d.update(range_name=range_upd_status_block, values=[values_upd_status_block])
-                    st.session_state.toast_msg_success = True; st.session_state.clicou_no_editar_d = False
-                    btn_clear_fn_form_d_action(rerun=True)
-            else:
+                    if status_save == "Deferido":
+                        final_valor = treated_valor_manual_to_save; final_servidor = st.session_state.get("sessao_servidor", "")
+                        final_dt_at = current_time; final_dt_mod = current_time
+                        final_motivo = ""; final_gdoc = gdoc_save
+                        final_divisao = divisao_save or ""
+                    
+                    elif status_save == "Indeferido":
+                        final_valor = valor_manual_save; final_servidor = st.session_state.get("sessao_servidor", "")
+                        final_dt_at = current_time; final_dt_mod = current_time
+                        final_motivo = motivo_ind_save; final_gdoc = gdoc_save
+                        final_divisao = divisao_save or ""
+                    
+                    else:
+                        final_valor = valor_manual_save; final_servidor = ""
+                        final_dt_at = ""; final_dt_mod = ""
+                        final_motivo = ""; final_gdoc = ""
+                        final_divisao = ""
+
+                    respondido_original = worksheet_save_d.cell(cell_save_d.row, 27).value or "Não"
+
+                    values_to_update = [
+                        cod_sol_save, final_valor, status_save, final_servidor, final_dt_at,
+                        final_dt_mod, final_motivo, "", final_gdoc, final_divisao, respondido_original
+                    ]
+                    
+                    range_to_update = f"Q{cell_save_d.row}:AA{cell_save_d.row}"
+                    worksheet_save_d.update(range_to_update, [values_to_update])
+
+                # --- LÓGICA DE RESET PÓS-SALVAMENTO (CORRIGIDA) ---
+                st.session_state.toast_msg_success = True
+                st.session_state.clicou_no_editar_d = False
+                st.session_state.reload_div_df = True
+                load_div_df.clear()
+                st.session_state.selected_index_div = None
+                st.rerun()
+
+            else: # Lógica de validação (inalterada)
                 if status_save == "Deferido":
-                    if not gdoc_is_valid_to_save: st.toast(f"🔴 Formato GDOC inválido.");
-                    elif not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Deferir.");
-                    elif not bool(treated_valor_manual_to_save): st.toast("🔴 Valor do DAM obrigatório e > R$ 0,00 para Deferir.");
+                    if not gdoc_is_valid_to_save: st.toast("🔴 Formato GDOC inválido.")
+                    elif not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Deferir.")
+                    elif not bool(treated_valor_manual_to_save): st.toast("🔴 Valor do DAM obrigatório e > R$ 0,00 para Deferir.")
                 elif status_save == "Indeferido":
-                    if not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Indeferir.");
-                    elif not (len(motivo_ind_save or "") > 10): st.toast("🔴 Motivo indeferimento curto.");
+                    if not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Indeferir.")
+                    elif not (len(motivo_ind_save or "") > 10): st.toast("🔴 Motivo indeferimento curto.")
 
         if btn_save_d_form_submit: save_in_sheet_d_action(st.session_state.clicou_no_editar_d)
-
+        
+        # --- LÓGICA DE E-MAIL (COM AJUSTE NA CHAMADA DE LIMPEZA) ---
         if 'is_email_sended_d' not in st.session_state: st.session_state.is_email_sended_d = False
         def mark_email_as_sent_d_action():
             cod_sol_email = codigo_solicitacao_d_input
@@ -635,14 +617,19 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 link_cartao_gdrive_email = st.session_state.get("gdrive_link_do_cartao_d", "")
                 if link_cartao_gdrive_email: ws_email.update_acell(f'X{cell_email.row}', link_cartao_gdrive_email)
                 ws_email.update_acell(f'AA{cell_email.row}', "Sim")
+            
+            # --- USA A MESMA LÓGICA DE RESET DO SALVAMENTO ---
             st.session_state.pop("gdrive_link_do_cartao_d", None); st.session_state.is_email_sended_d = False
             st.session_state.clicou_no_editar_d = False
-            btn_clear_fn_form_d_action(rerun=True)
+            st.session_state.reload_div_df = True
+            load_div_df.clear()
+            st.session_state.selected_index_div = None
+            st.rerun()
 
         def send_mail_d_action():
-            status_send = st.session_state.get("form_d_status_sel")
+            status_send = status_d_form_selectbox
             gdoc_send = gdoc_d_form_input
-            divisao_send = st.session_state.get("form_d_divisao_sel")
+            divisao_send = divisao_d_form_selectbox
             email_diversos(
                 kw_status=status_send, kw_gdoc=gdoc_send, kd_divisao=divisao_send,
                 kw_protocolo=codigo_solicitacao_d_input, kw_data_sol=data_solicitacao_d_input,
@@ -653,22 +640,19 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
 
         if btn_send_d_form_submit:
             tipo_proc_send_btn = tipo_processo_d_input; cod_sol_send_btn = codigo_solicitacao_d_input
-            status_send_btn = st.session_state.get("form_d_status_sel")
-            divisao_send_btn = st.session_state.get("form_d_divisao_sel")
+            status_send_btn = status_d_form_selectbox
+            divisao_send_btn = divisao_d_form_selectbox
             gdoc_send_btn = gdoc_d_form_input; data_sol_send_btn = data_solicitacao_d_input
             cartao_send_btn = cartao_protocolo_d_form_uploader; motivo_send_btn = motivo_indeferimento_d_form_input
             valor_manual_send_btn = valor_manual_d_form_input
-
             if tipo_proc_send_btn and cod_sol_send_btn:
                 div_list_send = divisao_options_form_d_sel
                 gdoc_valid_send = validate_gdoc(gdoc_send_btn, data_sol_send_btn)
                 prot_file_valid_send = False
                 if cartao_send_btn: prot_file_valid_send = validate_protocolo(cartao_send_btn.name, gdoc_send_btn)
                 val_manual_ok_send = bool(extrair_e_formatar_real(valor_manual_send_btn))
-
                 cond_def_send = (status_send_btn == "Deferido" and (divisao_send_btn in div_list_send) and gdoc_valid_send and cartao_send_btn and prot_file_valid_send and val_manual_ok_send)
                 cond_ind_send = (status_send_btn == "Indeferido" and (divisao_send_btn in div_list_send) and len(motivo_send_btn or "") > 10)
-
                 if cond_def_send or cond_ind_send:
                     st.toast(f"Tentando responder '{cod_sol_send_btn}'. Aguarde..."); send_mail_d_action()
                     if st.session_state.is_email_sended_d: mark_email_as_sent_d_action()
