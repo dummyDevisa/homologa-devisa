@@ -1370,7 +1370,7 @@ def pesquisa_processo_digitacao(n_proc, ano_proc):
                 df = pd.DataFrame([result])
 
                 st.session_state.base_geral = df
-
+                # print(f"index: `{index}")
                 # Salva a linha encontrada
                 st.session_state.linha_do_proc_encontrada = index
 
@@ -1387,6 +1387,12 @@ def pesquisa_processo_digitacao(n_proc, ano_proc):
 def show_dadosProcesso(df):
     df_conv = df.to_json(orient="records", indent=2)
     return st.json(df_conv)
+
+@st.dialog("Detalhes do Processo", width="large")
+def show_dadosProcesso2(df):
+    df_conv = df.to_json(orient="records", indent=2)
+    return st.json(df_conv)
+
 
 
 @st.dialog("Ocorrências", width="large")
@@ -1690,45 +1696,57 @@ def certifica_carregar_lf(df):
     st.session_state.ano_lf = df.iloc[0]["Ano"]
     st.rerun()
 
-# lógica para salvar na planilha de lf
 def gerar_num_lf_e_linha_proc(ws, ano, check_lf):
+    # --- LINHA CORRIGIDA ---
+    # Trata o caso de check_lf ser uma string vazia ou None, assumindo 0 nesses casos.
+    chk_lf = int(check_lf or 0) 
     
-    chk_lf = int(check_lf)
-    #  try:
-    # print(f"check lf é é é é {chk_lf} e {type(chk_lf)}")
-    col2 = ws.col_values(2)[1:]  # Ignora o cabeçalho
-    col17 = ws.col_values(17)[1:]  # Ignora o cabeçalho
+    # O restante do seu código permanece igual.
+    try:
+        col2 = ws.col_values(2)[1:]  # Ignora o cabeçalho
+        col17 = ws.col_values(17)[1:]  # Ignora o cabeçalho
 
-    df = pd.DataFrame({
-            'col2': pd.to_numeric(col2, errors='coerce'),
-            'col17': pd.to_numeric(col17, errors='coerce')
-        })
+        df = pd.DataFrame({
+                'col2': pd.to_numeric(col2, errors='coerce'),
+                'col17': pd.to_numeric(col17, errors='coerce')
+            })
 
-    df_filtered = df[df['col17'] == int(ano)]
-    # print(f"df_filtered: {df_filtered}")
-    
-    if chk_lf == 0:
-        largest = max(df_filtered['col2'], default=0)
+        df_filtered = df[df['col17'] == int(ano)]
+        
+        if chk_lf == 0:
+            # Gera um novo número LF
+            largest = df_filtered['col2'].max()
+            if pd.isna(largest): # Se não houver nenhum número para aquele ano, começa do 0.
+                largest = 0
 
-        indices = len(ws.col_values(1)) + 1 # última linha da planilha + 1
-        num_lf = largest + 1
+            indices = len(ws.col_values(1)) + 1 # última linha da planilha + 1
+            num_lf = largest + 1
 
-        # CUIDADO! TENTA VER UMA FORMA DE MANTER O NÚMERO DE LF SE O PROCESSO EXISTIR
-        return int(num_lf), indices
-    else:
-        df_row = df_filtered[df_filtered['col2'] == chk_lf]
-        indices = df_row.index.tolist()
-        # print(f"indices: {indices}")
-        indices[0] = indices[0] + 2 # !!!!!!!!!!!!!!!!!
+            return int(num_lf), indices
+        else:
+            # Procura um número LF existente
+            df_row = df_filtered[df_filtered['col2'] == chk_lf]
+            
+            # Verifica se encontrou a linha
+            if df_row.empty:
+                # Opcional: o que fazer se o número LF fornecido não for encontrado?
+                # Você pode retornar None ou levantar um erro.
+                # print(f"AVISO: LF {chk_lf} não encontrado para o ano {ano}.")
+                return None, None # Exemplo de retorno em caso de não encontrar
 
-        num_lf = chk_lf
-        return int(num_lf), indices[0]
+            indices = df_row.index.tolist()
+            
+            # A linha do DataFrame é baseada em 0 e não considera o cabeçalho.
+            # O índice da planilha é baseado em 1.
+            # Se a primeira linha de dados no df tem índice 0, ela corresponde à linha 2 da planilha.
+            linha_planilha = indices[0] + 2 
 
-    
-    # except Exception as e:
-    #     print(f"Erro ao processar a planilha: {e}")
-    #     return None, None
+            num_lf = chk_lf
+            return int(num_lf), linha_planilha
 
+    except Exception as e:
+        print(f"Erro ao processar a planilha: {e}")
+        return None, None
 
 def salvar_lf_digitada(this_date: str, generate_doc: bool):
     # MENSAGEM
@@ -1870,7 +1888,7 @@ def salvar_lf_digitada(this_date: str, generate_doc: bool):
             wx = get_worksheet(2, st.secrets['sh_keys']['geral_major'])
             range_major = f"Z{st.session_state.linha_do_proc_encontrada}" # salvar na coluna Z de Licença base geral
             print(f"range_major será salvo em {range_major}")
-            wx.update(range_major, numero_lf, raw=False)
+            wx.update(range_major, [[numero_lf]], raw=False)
         else:
             print(f"Nada de range major. O ano é {st.session_state.fi_ano}")
 

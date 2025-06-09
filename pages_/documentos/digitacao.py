@@ -273,6 +273,7 @@ def btn_processo():
                         st.toast(f"red[O processo **{st.session_state.fi_proc}** não foi encontrado.]")
 
                 case '2025' | '2026' | '2027' | '2028':
+                    st.write(df)
                     if 'GDOC' in df.columns:
                         if df.iloc[0]["GDOC"]:
                             if len(df.iloc[0]['Nº LF']) > 0:
@@ -297,7 +298,7 @@ def btn_processo():
                 
             st.toast(f"Pesquisa finalizada.")
 
-            show_dadosProcesso(df)
+            show_dadosProcesso2(df)
 
         else:
             st.toast(f":red[Nenhum resultado encontrado para {st.session_state.fi_proc}/{st.session_state.fi_ano}]")        

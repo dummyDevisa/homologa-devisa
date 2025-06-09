@@ -445,12 +445,10 @@ if st.session_state.get('selected_index_tx') is not None and 'tx_df' in st.sessi
 
 is_record_loaded_for_form = bool(treated_line_tx.get("Código Solicitação", ""))
 
-if is_record_loaded_for_form:
-    status_from_data = treated_line_tx.get("Status", "") or "Passivo"
-    st.session_state.form_tx_status_sel = status_from_data
-else:
-    if 'form_tx_status_sel' in st.session_state:
-        del st.session_state.form_tx_status_sel
+# #################### INÍCIO DA CORREÇÃO ####################
+# O bloco de código que manipulava 'st.session_state.form_tx_status_sel' foi removido daqui,
+# pois causava o erro de redefinir o status a cada interação.
+# #################### FIM DA CORREÇÃO ####################
 
 show_expander_2_tx = is_record_loaded_for_form
 st.write("")
@@ -552,11 +550,34 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2_tx):
             obs_tx_input = st.text_area("Observação", value=treated_line_tx.get("Observação", ""), height=77, key="form_tx_obs")
             col1_f1_c2, col2_f1_c2, col3_f1_c2, col4_f1_c2, col5_f1_c2 = st.columns([1.2, 1.1, 1, 0.9, 0.9], vertical_alignment="bottom")
             
+            # #################### INÍCIO DA CORREÇÃO ####################
             status_options_form_tx_sel = ['Passivo', 'Deferido', 'Indeferido']
+            
+            # Define o índice inicial para o selectbox.
+            # `None` para registros novos (mostra o placeholder), ou o índice correspondente para registros existentes.
+            status_index = None
+            if is_record_loaded_for_form:
+                # Se um registro está carregado, busca o status atual dele.
+                status_from_data = treated_line_tx.get("Status", "Passivo")
+                if status_from_data == "": # Trata caso de string vazia como 'Passivo'
+                    status_from_data = "Passivo"
+                try:
+                    # Encontra o índice (0, 1, ou 2) do status na lista de opções.
+                    status_index = status_options_form_tx_sel.index(status_from_data)
+                except ValueError:
+                    # Se o status do registro não estiver na lista (improvável), usa 'Passivo' como fallback.
+                    status_index = 0
+            
+            # A `key` foi removida para que o Streamlit gere uma chave aleatória,
+            # evitando que o estado seja sobrescrito incorretamente ao salvar.
+            # O `index` é usado para definir a seleção inicial.
             status_tx_form_selectbox = col1_f1_c2.selectbox(
-                "Status *", status_options_form_tx_sel,
-                key="form_tx_status_sel", placeholder="..."
+                "Status *",
+                status_options_form_tx_sel,
+                index=status_index,
+                placeholder="Selecione o status..."
             )
+            # #################### FIM DA CORREÇÃO ####################
 
             numero_dam_tx_form_val = str(treated_line_tx.get("Nº do DAM", "")).replace(".0", "")
             numero_dam_tx_input = col2_f1_c2.text_input("Nº do DAM *", value=numero_dam_tx_form_val, key="form_tx_num_dam")
@@ -623,7 +644,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2_tx):
             st.session_state.toast_msg_success_tx = False
             st.session_state.pop('last_saved_status_tx', None)
 
-        # #################### INÍCIO DA CORREÇÃO ####################
         def btn_clear_fn_form_tx_action(rerun=True):
             # Limpa o índice da linha selecionada
             st.session_state.selected_index_tx = None
@@ -640,7 +660,6 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2_tx):
             st.session_state.clicou_no_editar_tx = False
             
             if rerun: st.rerun()
-        # #################### FIM DA CORREÇÃO ####################
 
         if btn_clear_tx_form_submit:
             btn_clear_fn_form_tx_action(rerun=True)
@@ -695,7 +714,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2_tx):
             if servidor_atual_ws_tx and servidor_atual_ws_tx != st.session_state.get("sessao_servidor") and not btn_edit_mode_action and status_save != "Passivo":
                 st.toast(f"🔴 :red[**Erro! Sol. tratada por '{servidor_atual_ws_tx}'. Use Editar.**]"); return
 
-            despacho_final_save = comp_despacho_tx; status_sheet = status_save
+            despacho_final_save = comp_despacho_tx if status_save != "Deferido" else ""; status_sheet = status_save
             servidor_sheet = st.session_state.get("sessao_servidor", "") if status_save != "Passivo" else treated_line_tx.get("Servidor", "")
             data_at_ws_val = worksheet_save_tx.cell(cell_save_tx.row, 30).value
             data_at_sheet = data_at_ws_val
