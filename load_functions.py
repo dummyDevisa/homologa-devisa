@@ -1621,6 +1621,9 @@ def fill_st_session_state_lf(df, is_typewrited):
     st.session_state.fi_conselho = df_t.iloc[0]["Inscrição Conselho"]
     st.session_state.fi_atividade = df_t.iloc[0]["Atividade"]
     st.session_state.fi_descricao = df_t.iloc[0]["Descrição"]
+    
+    st.session_state.fi_risco = df_t.iloc[0]["Risco"] if df_t.iloc[0]["Risco"] and df_t.iloc[0]["Ano"] != "2024" else None
+    
     # print(st.session_state.fi_descricao)
     # print(df_t.iloc[0]["Descrição"])
     st.session_state.fi_complemento = df_t.iloc[0]["Complemento"]

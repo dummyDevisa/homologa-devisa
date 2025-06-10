@@ -238,9 +238,9 @@ with st.expander("Registro de Solicitações", expanded=True):
             total_passivos_badge_tx = len(base_df_for_badge_tx[base_df_for_badge_tx['Status'] == 'Passivo'])
             if "Respondido" in base_df_for_badge_tx.columns:
                 total_nao_respondidos_badge_tx = len(base_df_for_badge_tx[(base_df_for_badge_tx['Status'] != 'Passivo') & (base_df_for_badge_tx['Respondido'] == 'Não')])
-                badge_text_tx += f" ~ Passivo: {total_passivos_badge_tx} ~ Não respondidos (Def/Ind): {total_nao_respondidos_badge_tx}"
+                badge_text_tx += f" ~ Passivo: {total_passivos_badge_tx} ~ Não respondidas: {total_nao_respondidos_badge_tx}"
             else:
-                badge_text_tx += f" ~ Passivo: {total_passivos_badge_tx} ~ Não respondidos: N/A"
+                badge_text_tx += f" ~ Passivo: {total_passivos_badge_tx} ~ Não respondidas: N/A"
             st.badge(badge_text_tx, color="blue")
         else:
             st.badge(f"Exibindo: {total_exibido_tx} ~ Totais Gerais: N/A", color="grey")

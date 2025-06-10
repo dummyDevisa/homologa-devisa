@@ -356,7 +356,9 @@ def btn_trim_cnae():
 
 def btn_ai_organizer():
     if len(st.session_state.fi_descricao) > 10:
-        corrigido = asyncio.run(corrigir_texto_async(st.session_state.fi_descricao))
+        corrigido = corrigir_texto_sync(
+            st.session_state.akash_client,
+            st.session_state.fi_descricao)
         st.session_state.fi_descricao = corrigido
     else:
         st.toast(f":red[Erro. Preencha os dados da descrição]")
@@ -537,4 +539,3 @@ with st.container(border=True):
         col2.button("Criar Doc.", type="primary", icon=":material/note_add:", use_container_width=True, on_click=btn_gen_doc, key="btn_gen_doc", disabled=st.session_state.off_btn_gen_doc)
         col3.button("Editar...", type="secondary", icon=":material/edit_document:", use_container_width=True, on_click=btn_edit_sheet, key="btn_edit_sheet", disabled=st.session_state.off_btn_edit_sheet)
         col4.link_button("Baixar PDF", type="secondary", icon=":material/picture_as_pdf:", use_container_width=True, url=st.session_state.url_gen_pdf, disabled=st.session_state.off_btn_gen_pdf)
-
