@@ -500,6 +500,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
         if btn_edit_d_form_submit:
             st.session_state.clicou_no_editar_d = True; st.rerun()
 
+        # --- INÍCIO DO BLOCO ALTERADO ---
         # --- FUNÇÃO DE SALVAR COM LÓGICA DE RESET CORRIGIDA ---
         def save_in_sheet_d_action(btn_edit_mode_action: bool):
             st.toast("Tentando salvar os dados. Aguarde...")
@@ -522,8 +523,10 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
             treated_valor_manual_to_save = extrair_e_formatar_real(valor_manual_save)
             gdoc_is_valid_to_save = validate_gdoc(gdoc_save, data_sol_save)
 
+            # --- MUDANÇA 1: CONDIÇÃO DE INDEFERIDO ALTERADA ---
+            # A verificação de 'divisao_save' foi removida. Apenas o motivo é obrigatório.
             cond_deferido_to_save = (status_save == "Deferido" and gdoc_is_valid_to_save and (divisao_save in divisao_list_valid_save) and bool(treated_valor_manual_to_save))
-            cond_indeferido_to_save = (status_save == "Indeferido" and len(motivo_ind_save or "") > 10 and (divisao_save in divisao_list_valid_save) )
+            cond_indeferido_to_save = (status_save == "Indeferido" and len(motivo_ind_save or "") > 10)
             cond_passivo_to_save = (status_save == "Passivo")
 
             if cond_deferido_to_save or cond_indeferido_to_save or cond_passivo_to_save:
@@ -532,17 +535,26 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 is_new_record_form = not bool(cell_save_d)
 
                 if is_new_record_form:
-                    # Lógica para novo registro (inalterada)
+                    # Lógica para novo registro
                     razao_social_save = razao_social_d_form_input; cpf_cnpj_save = cpf_cnpj_d_form_input
                     email1_save = email1_d_form_input; email2_save = email2_d_form_input
                     obs_save = observacao_d_form_input; comp_valor_save = comp_valor_un_d_form_input
                     valor_unit_save = valor_un_d_form_input
                     divisao_to_sheet = divisao_save if divisao_save is not None else ""
                     
+                    # --- MUDANÇA 2: VALOR DO DAM PARA NOVO REGISTRO INDEFERIDO ---
+                    valor_para_salvar_novo = ""
+                    if status_save == "Deferido":
+                        valor_para_salvar_novo = treated_valor_manual_to_save
+                    elif status_save == "Indeferido":
+                        valor_para_salvar_novo = "R$ 0,00" # Força o valor a ser R$ 0,00
+                    else: # Passivo
+                        valor_para_salvar_novo = valor_manual_save
+
                     new_row_values = [
                         cod_sol_save, data_sol_save, tipo_proc_save, razao_social_save, cpf_cnpj_save, "Válido",
                         "", valor_unit_save, comp_valor_save, obs_save, email1_save, email2_save, "", "", "", "",
-                        cod_sol_save, treated_valor_manual_to_save if status_save == "Deferido" else valor_manual_save,
+                        cod_sol_save, valor_para_salvar_novo, # Usa a variável definida acima
                         status_save, st.session_state.get("sessao_servidor", ""),
                         get_current_datetime() if status_save != "Passivo" else "",
                         get_current_datetime() if status_save != "Passivo" else "",
@@ -553,7 +565,7 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                     worksheet_save_d.append_row(new_row_values, value_input_option='USER_ENTERED')
                     
                 elif cell_save_d:
-                    # Lógica de atualização (inalterada)
+                    # Lógica de atualização
                     servidor_atual_ws = worksheet_save_d.cell(cell_save_d.row, 20).value
                     if servidor_atual_ws and servidor_atual_ws != st.session_state.get("sessao_servidor") and not btn_edit_mode_action and status_save != "Passivo":
                         st.toast(f"🔴 :red[**Erro! Sol. já tratada por '{servidor_atual_ws}'.**]"); return
@@ -567,12 +579,14 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                         final_divisao = divisao_save or ""
                     
                     elif status_save == "Indeferido":
-                        final_valor = valor_manual_save; final_servidor = st.session_state.get("sessao_servidor", "")
+                        # --- MUDANÇA 3: VALOR DO DAM PARA ATUALIZAÇÃO DE INDEFERIDO ---
+                        final_valor = "R$ 0,00" # Força o valor a ser R$ 0,00
+                        final_servidor = st.session_state.get("sessao_servidor", "")
                         final_dt_at = current_time; final_dt_mod = current_time
                         final_motivo = motivo_ind_save; final_gdoc = gdoc_save
                         final_divisao = divisao_save or ""
                     
-                    else:
+                    else: # Passivo
                         final_valor = valor_manual_save; final_servidor = ""
                         final_dt_at = ""; final_dt_mod = ""
                         final_motivo = ""; final_gdoc = ""
@@ -596,16 +610,17 @@ with st.expander("Detalhes da solicitação", expanded=show_expander_2):
                 st.session_state.selected_index_div = None
                 st.rerun()
 
-            else: # Lógica de validação (inalterada)
+            else: # Lógica de validação
                 if status_save == "Deferido":
                     if not gdoc_is_valid_to_save: st.toast("🔴 Formato GDOC inválido.")
                     elif not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Deferir.")
                     elif not bool(treated_valor_manual_to_save): st.toast("🔴 Valor do DAM obrigatório e > R$ 0,00 para Deferir.")
                 elif status_save == "Indeferido":
-                    if not (divisao_save in divisao_list_valid_save): st.toast("🔴 Divisão inválida para Indeferir.")
-                    elif not (len(motivo_ind_save or "") > 10): st.toast("🔴 Motivo indeferimento curto.")
+                    # --- MUDANÇA 4: REMOÇÃO DA MENSAGEM DE ERRO DE DIVISÃO ---
+                    if not (len(motivo_ind_save or "") > 10): st.toast("🔴 Motivo indeferimento curto.")
 
         if btn_save_d_form_submit: save_in_sheet_d_action(st.session_state.clicou_no_editar_d)
+        # --- FIM DO BLOCO ALTERADO ---
         
         # --- LÓGICA DE E-MAIL (COM AJUSTE NA CHAMADA DE LIMPEZA) ---
         if 'is_email_sended_d' not in st.session_state: st.session_state.is_email_sended_d = False
